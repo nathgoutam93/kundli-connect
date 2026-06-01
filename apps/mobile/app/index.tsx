@@ -1,12 +1,26 @@
 import { Redirect } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { useAppState } from '@/store/use-app-state';
 
 export default function Index() {
-  const { isHydrated, isAuthenticated, hasCompletedOnboarding } = useAppState();
+  const { hasCompletedOnboarding, hydrateAuthSession, isAuthenticated, isHydrated, isServiceBusy } = useAppState();
+  const hasHydratedAuthRef = useRef(false);
+  const [hasCheckedAuthSession, setHasCheckedAuthSession] = useState(false);
 
-  if (!isHydrated) {
+  useEffect(() => {
+    if (!isHydrated || hasHydratedAuthRef.current) {
+      return;
+    }
+
+    hasHydratedAuthRef.current = true;
+    hydrateAuthSession()
+      .catch(() => undefined)
+      .finally(() => setHasCheckedAuthSession(true));
+  }, [hydrateAuthSession, isHydrated]);
+
+  if (!isHydrated || !hasCheckedAuthSession || isServiceBusy) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color="#2D241E" />

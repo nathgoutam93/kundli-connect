@@ -12,7 +12,7 @@ const MIN_PHOTOS = 4;
 const MAX_PHOTOS = PHOTO_SLOTS.length;
 
 export default function PhotosScreen() {
-  const { profile, updateProfile } = useAppState();
+  const { addProfilePhotos, isServiceBusy, profile, removeProfilePhoto } = useAppState();
   const { width } = useWindowDimensions();
   const selectedPhotoUris = (profile.photoUris ?? []).slice(0, MAX_PHOTOS);
   const canContinue = selectedPhotoUris.length >= MIN_PHOTOS;
@@ -45,15 +45,11 @@ export default function PhotosScreen() {
     }
 
     const pickedUris = result.assets.map((asset) => asset.uri).filter(Boolean);
-    const nextUris = Array.from(new Set([...selectedPhotoUris, ...pickedUris])).slice(0, MAX_PHOTOS);
-
-    updateProfile({ photoUris: nextUris });
+    await addProfilePhotos(pickedUris.slice(0, remainingSlots));
   }
 
-  function handleRemovePhoto(uriToRemove: string) {
-    updateProfile({
-      photoUris: selectedPhotoUris.filter((uri) => uri !== uriToRemove),
-    });
+  async function handleRemovePhoto(uriToRemove: string) {
+    await removeProfilePhoto(uriToRemove);
   }
 
   async function handleContinue() {
@@ -87,7 +83,7 @@ export default function PhotosScreen() {
               <Pressable
                 key={slot}
                 style={[styles.photoSlot, { width: slotSize, height: slotSize }]}
-                onPress={handlePickPhotos}>
+                onPress={isServiceBusy ? undefined : handlePickPhotos}>
                 {photoUri ? (
                   <>
                     <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
@@ -96,6 +92,7 @@ export default function PhotosScreen() {
                       hitSlop={10}
                       style={styles.removeBadge}
                       onPress={() => handleRemovePhoto(photoUri)}
+                      disabled={isServiceBusy}
                     >
                       <Ionicons name="close" size={12} color="#FFFFFF" />
                     </Pressable>
@@ -113,7 +110,11 @@ export default function PhotosScreen() {
             {selectedPhotoUris.length}/{MAX_PHOTOS} selected
           </Text>
           <Text style={styles.requiredText}>
-            {canContinue ? 'Ready to continue' : `${MIN_PHOTOS - selectedPhotoUris.length} more required to continue`}
+            {isServiceBusy
+              ? 'Uploading photos...'
+              : canContinue
+                ? 'Ready to continue'
+                : `${MIN_PHOTOS - selectedPhotoUris.length} more required to continue`}
           </Text>
         </View>
       </ScrollView>
@@ -121,6 +122,7 @@ export default function PhotosScreen() {
       <Pressable
         style={[styles.nextButton, !canContinue && styles.nextButtonDisabled]}
         onPress={handleContinue}
+        disabled={!canContinue || isServiceBusy}
       >
         <Ionicons name="chevron-forward" size={31} color="#FFFFFF" />
       </Pressable>

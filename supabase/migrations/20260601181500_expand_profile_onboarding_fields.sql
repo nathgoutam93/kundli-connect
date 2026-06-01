@@ -1,0 +1,20 @@
+alter table public.profiles
+  add column if not exists gender_preferences text[] not null default '{}',
+  add column if not exists height text,
+  add column if not exists family_plans text,
+  add column if not exists family_plans_visible_on_profile boolean not null default true,
+  add column if not exists workplace text,
+  add column if not exists workplace_visible_on_profile boolean not null default true,
+  add column if not exists job_role text,
+  add column if not exists job_role_visible_on_profile boolean not null default true,
+  add column if not exists school text,
+  add column if not exists school_visible_on_profile boolean not null default true,
+  add column if not exists education_level text,
+  add column if not exists education_level_visible_on_profile boolean not null default true,
+  add column if not exists religious_beliefs text,
+  add column if not exists drinking text,
+  add column if not exists drinking_visible_on_profile boolean not null default true,
+  add column if not exists smoking text,
+  add column if not exists smoking_visible_on_profile boolean not null default true,
+  add column if not exists photo_uris text[] not null default '{}';
+

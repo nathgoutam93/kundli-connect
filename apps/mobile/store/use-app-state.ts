@@ -36,6 +36,18 @@ import {
   mockProfileService,
   mockSubscriptionsService,
 } from '@/services/mock-services';
+import {
+  applyProfileRow,
+  ensureCurrentUserProfile,
+  getCurrentSession,
+  getCurrentUserProfile,
+  requestPhoneOtp,
+  signOut,
+  deleteCurrentUserProfilePhoto,
+  updateCurrentUserProfile,
+  uploadCurrentUserProfilePhoto,
+  verifyPhoneOtp,
+} from '@/services/supabase-auth-service';
 
 type AppState = {
   isHydrated: boolean;
@@ -58,10 +70,13 @@ type AppState = {
   privacy: PrivacySettings;
   requestOtp: (phoneNumber: string) => Promise<void>;
   setPhoneNumber: (phoneNumber: string) => void;
-  completeOtpLogin: (otp?: string) => Promise<void>;
+  completeOtpLogin: (otp: string, phoneNumber: string) => Promise<void>;
   completeGoogleLogin: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
   updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
+  refreshProfile: () => Promise<void>;
+  addProfilePhotos: (photoUris: string[]) => Promise<string[]>;
+  removeProfilePhoto: (photoUri: string) => Promise<void>;
   passProfile: (profileId: string) => Promise<void>;
   consumeCredit: (reason: string) => Promise<boolean>;
   sendLike: (profileId: string, message: string) => Promise<boolean>;
@@ -74,6 +89,7 @@ type AppState = {
   restorePurchases: () => Promise<void>;
   updateNotifications: (settings: Partial<NotificationSettings>) => Promise<void>;
   updatePrivacy: (settings: Partial<PrivacySettings>) => Promise<void>;
+  hydrateAuthSession: () => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -144,8 +160,28 @@ export const useAppState = create<AppState>()(
       ...initialPersistedState,
       discoverProfiles: MOCK_DISCOVER_PROFILES,
       subscriptionPlans: MOCK_SUBSCRIPTION_PLANS,
+      hydrateAuthSession: async () => {
+        await withBusy(set, async () => {
+          const session = await getCurrentSession();
+
+          if (!session) {
+            set({
+              isAuthenticated: false,
+              hasCompletedOnboarding: false,
+            });
+            return;
+          }
+
+          const profileRow = await getCurrentUserProfile();
+          set((state) => ({
+            isAuthenticated: true,
+            hasCompletedOnboarding: Boolean(profileRow?.onboarding_completed),
+            profile: profileRow ? applyProfileRow(state.profile, profileRow) : state.profile,
+          }));
+        });
+      },
       requestOtp: async (phoneNumber) => {
-        await withBusy(set, () => mockAuthService.requestOtp(phoneNumber));
+        await withBusy(set, () => requestPhoneOtp(phoneNumber));
       },
       setPhoneNumber: (phoneNumber) => {
         set((state) => ({
@@ -156,11 +192,21 @@ export const useAppState = create<AppState>()(
           },
         }));
       },
-      completeOtpLogin: async (otp = '0000') => {
+      completeOtpLogin: async (otp, phoneNumber) => {
         await withBusy(set, async () => {
-          const phoneNumber = get().profile.phoneNumber;
-          await mockAuthService.verifyOtp(phoneNumber, otp);
-          set({ isAuthenticated: true });
+          await verifyPhoneOtp(phoneNumber, otp);
+          const user = await ensureCurrentUserProfile();
+          const profileRow = await getCurrentUserProfile();
+          set((state) => ({
+            isAuthenticated: true,
+            hasCompletedOnboarding: Boolean(profileRow?.onboarding_completed),
+            profile: {
+              ...(profileRow ? applyProfileRow(state.profile, profileRow) : state.profile),
+              id: user.id,
+              phoneNumber: user.phone || phoneNumber,
+              updatedAt: new Date().toISOString(),
+            },
+          }));
         });
       },
       completeGoogleLogin: async () => {
@@ -179,6 +225,7 @@ export const useAppState = create<AppState>()(
       completeOnboarding: async () => {
         await withBusy(set, async () => {
           const profile = await mockOnboardingService.complete(get().profile);
+          await updateCurrentUserProfile(profile, { onboardingCompleted: true });
           set({
             profile,
             hasCompletedOnboarding: true,
@@ -194,8 +241,65 @@ export const useAppState = create<AppState>()(
         set({ profile: optimisticProfile });
         await withBusy(set, async () => {
           const profile = await mockProfileService.updateProfile(get().profile, profileUpdates);
+          if (get().isAuthenticated) {
+            await updateCurrentUserProfile(profile);
+          }
           set({ profile });
         });
+      },
+      refreshProfile: async () => {
+        if (!get().isAuthenticated) {
+          return;
+        }
+
+        await withBusy(set, async () => {
+          const profileRow = await getCurrentUserProfile();
+          if (!profileRow) {
+            return;
+          }
+
+          set((state) => ({
+            hasCompletedOnboarding: Boolean(profileRow.onboarding_completed),
+            profile: applyProfileRow(state.profile, profileRow),
+          }));
+        });
+      },
+      addProfilePhotos: async (photoUris) => {
+        const localUris = photoUris.filter((uri) => uri.trim());
+        if (localUris.length === 0) {
+          return [];
+        }
+
+        return withBusy(set, async () => {
+          const existingUris = get().profile.photoUris ?? [];
+          const uploadedUris: string[] = [];
+
+          for (const [index, photoUri] of localUris.entries()) {
+            const uploadedUri = await uploadCurrentUserProfilePhoto(photoUri, existingUris.length + index);
+            uploadedUris.push(uploadedUri);
+          }
+
+          set((state) => ({
+            profile: {
+              ...state.profile,
+              photoUris: [...(state.profile.photoUris ?? []), ...uploadedUris],
+              updatedAt: new Date().toISOString(),
+            },
+          }));
+
+          return uploadedUris;
+        });
+      },
+      removeProfilePhoto: async (photoUri) => {
+        set((state) => ({
+          profile: {
+            ...state.profile,
+            photoUris: (state.profile.photoUris ?? []).filter((uri) => uri !== photoUri),
+            updatedAt: new Date().toISOString(),
+          },
+        }));
+
+        await withBusy(set, () => deleteCurrentUserProfilePhoto(photoUri));
       },
       passProfile: async (profileId) => {
         set((state) => ({
@@ -403,7 +507,7 @@ export const useAppState = create<AppState>()(
         });
       },
       logout: async () => {
-        await withBusy(set, () => mockAuthService.logout());
+        await withBusy(set, () => signOut());
         set({
           ...initialPersistedState,
           discoverProfiles: MOCK_DISCOVER_PROFILES,

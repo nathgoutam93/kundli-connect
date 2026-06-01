@@ -2,12 +2,18 @@
 
 # dependencies
 node_modules/
+apps/*/node_modules/
+packages/*/node_modules/
 
 # Expo
 .expo/
+apps/*/.expo/
 dist/
 web-build/
+apps/*/dist/
+apps/*/web-build/
 expo-env.d.ts
+apps/*/expo-env.d.ts
 
 # Native
 .kotlin/
@@ -35,7 +41,11 @@ yarn-error.*
 *.swo
 
 # local env files
+.env
 .env*.local
+
+# Supabase local/link cache
+supabase/.temp/
 
 # typescript
 *.tsbuildinfo
@@ -45,3 +55,5 @@ app-example
 # generated native folders
 /ios
 /android
+apps/*/ios
+apps/*/android

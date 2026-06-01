@@ -7,7 +7,7 @@ import CountryPicker, { Country, CountryCode } from 'react-native-country-picker
 
 import { useAppState } from '@/store/use-app-state';
 
-const OTP_LENGTH = 4;
+const OTP_LENGTH = 6;
 
 function countryCodeToFlagEmoji(code: string) {
     return code
@@ -17,6 +17,21 @@ function countryCodeToFlagEmoji(code: string) {
 
 function splitStoredPhone(rawPhone: string) {
     const value = rawPhone.trim();
+
+    if (value.startsWith('+91')) {
+        return {
+            callingCode: '91',
+            localPhone: value.slice(3).replace(/\D/g, ''),
+        };
+    }
+
+    if (value.startsWith('+1')) {
+        return {
+            callingCode: '1',
+            localPhone: value.slice(2).replace(/\D/g, ''),
+        };
+    }
+
     const match = value.match(/^\+(\d{1,4})(\d+)$/);
 
     if (!match) {
@@ -33,7 +48,7 @@ function splitStoredPhone(rawPhone: string) {
 }
 
 export default function PhoneScreen() {
-    const { completeOtpLogin, profile, setPhoneNumber } = useAppState();
+    const { completeOtpLogin, isServiceBusy, profile, requestOtp, serviceError, setPhoneNumber } = useAppState();
     const parsedPhone = useMemo(() => splitStoredPhone(profile.phoneNumber), [profile.phoneNumber]);
     const phoneInputRef = useRef<TextInput>(null);
     const otpInputRef = useRef<TextInput>(null);
@@ -41,9 +56,11 @@ export default function PhoneScreen() {
     const [callingCode, setCallingCode] = useState(parsedPhone.callingCode);
     const [phone, setPhone] = useState(parsedPhone.localPhone);
     const [otp, setOtp] = useState('');
+    const [otpPhoneNumber, setOtpPhoneNumber] = useState('');
     const [secondsLeft, setSecondsLeft] = useState(0);
     const [showOtp, setShowOtp] = useState(false);
     const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+    const isVerifyingRef = useRef(false);
 
     useFocusEffect(
         useCallback(() => {
@@ -88,18 +105,35 @@ export default function PhoneScreen() {
             return;
         }
 
-        const sanitizedLocalPhone = phone.replace(/\D/g, '');
-        setPhoneNumber(sanitizedLocalPhone ? `+${callingCode}${sanitizedLocalPhone}` : '');
-        completeOtpLogin(otp).then(() => {
-            router.replace('/(onboarding)/basics');
-        });
-    }, [callingCode, completeOtpLogin, otp, otp.length, phone, setPhoneNumber, showOtp]);
+        if (!otpPhoneNumber || isVerifyingRef.current) {
+            return;
+        }
 
-    function resendCode() {
+        isVerifyingRef.current = true;
+        completeOtpLogin(otp, otpPhoneNumber)
+            .then(() => {
+                router.replace('/(onboarding)/basics');
+            })
+            .catch(() => setOtp(''))
+            .finally(() => {
+                isVerifyingRef.current = false;
+            });
+    }, [completeOtpLogin, otp, otp.length, otpPhoneNumber, showOtp]);
+
+    async function resendCode() {
         if (secondsLeft > 0) {
             return;
         }
 
+        const sanitizedLocalPhone = phone.replace(/\D/g, '');
+        const nextPhoneNumber = sanitizedLocalPhone ? `+${callingCode}${sanitizedLocalPhone}` : '';
+        if (!nextPhoneNumber) {
+            return;
+        }
+
+        setPhoneNumber(nextPhoneNumber);
+        await requestOtp(nextPhoneNumber);
+        setOtpPhoneNumber(nextPhoneNumber);
         setOtp('');
         setSecondsLeft(42);
     }
@@ -113,11 +147,20 @@ export default function PhoneScreen() {
         setPhone(value.replace(/\D/g, ''));
     }
 
-    function onContinue() {
+    async function onContinue() {
         if (!phone.trim()) {
             return;
         }
 
+        const sanitizedLocalPhone = phone.replace(/\D/g, '');
+        const nextPhoneNumber = sanitizedLocalPhone ? `+${callingCode}${sanitizedLocalPhone}` : '';
+        if (!nextPhoneNumber) {
+            return;
+        }
+
+        setPhoneNumber(nextPhoneNumber);
+        await requestOtp(nextPhoneNumber);
+        setOtpPhoneNumber(nextPhoneNumber);
         setShowOtp(true);
         setOtp('');
         setSecondsLeft(42);
@@ -157,9 +200,9 @@ export default function PhoneScreen() {
                 {!showOtp ? (
                     <Pressable
                         onPress={onContinue}
-                        disabled={!phone.trim()}
-                        style={[styles.continueButton, !phone.trim() && styles.continueButtonDisabled]}>
-                        <Text style={styles.continueButtonText}>Continue</Text>
+                        disabled={!phone.trim() || isServiceBusy}
+                        style={[styles.continueButton, (!phone.trim() || isServiceBusy) && styles.continueButtonDisabled]}>
+                        <Text style={styles.continueButtonText}>{isServiceBusy ? 'Sending...' : 'Continue'}</Text>
                     </Pressable>
                 ) : (
                     <>
@@ -205,13 +248,14 @@ export default function PhoneScreen() {
                             />
                         </Pressable>
 
-                        <Pressable onPress={resendCode} disabled={secondsLeft > 0}>
+                        <Pressable onPress={resendCode} disabled={secondsLeft > 0 || isServiceBusy}>
                             <Text style={styles.resendText}>
                                 You can resend code in <Text style={styles.resendHighlight}>{secondsLeft}</Text> s
                             </Text>
                         </Pressable>
                     </>
                 )}
+                {serviceError ? <Text style={styles.errorText}>{serviceError}</Text> : null}
             </View>
 
             <CountryPicker
@@ -334,8 +378,9 @@ const styles = StyleSheet.create({
         width: '100%',
     },
     otpBox: {
-        width: 84,
-        height: 84,
+        flex: 1,
+        aspectRatio: 1,
+        maxWidth: 56,
         borderRadius: 14,
         borderWidth: 1.2,
         borderColor: '#E1BC30',
@@ -356,7 +401,7 @@ const styles = StyleSheet.create({
         borderColor: '#DCDCDC',
     },
     otpText: {
-        fontSize: 48,
+        fontSize: 30,
         fontWeight: '700',
     },
     otpTextFilled: {
@@ -376,6 +421,12 @@ const styles = StyleSheet.create({
     resendHighlight: {
         color: '#E1B100',
         fontWeight: '700',
+    },
+    errorText: {
+        color: '#B42318',
+        fontSize: 13,
+        fontWeight: '600',
+        lineHeight: 18,
     },
     hiddenOtpInput: {
         position: 'absolute',

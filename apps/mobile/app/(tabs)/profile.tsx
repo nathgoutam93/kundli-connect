@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { type ReactNode, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { type ReactNode, useCallback, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
@@ -66,7 +67,7 @@ type FormState = {
 };
 
 export default function ProfileScreen() {
-    const { profile, updateProfile } = useAppState();
+    const { addProfilePhotos, isServiceBusy, profile, refreshProfile, removeProfilePhoto, updateProfile } = useAppState();
     const insets = useSafeAreaInsets();
     const [isEditing, setIsEditing] = useState(false);
     const [form, setForm] = useState<FormState>(() => ({
@@ -106,39 +107,18 @@ export default function ProfileScreen() {
     const secondDetails = profileDetails.slice(4, 8);
     const remainingDetails = profileDetails.slice(8);
 
+    useFocusEffect(
+        useCallback(() => {
+            if (isEditing) {
+                return;
+            }
+
+            refreshProfile().catch(() => undefined);
+        }, [isEditing, refreshProfile])
+    );
+
     function updateForm<T extends keyof FormState>(key: T, value: FormState[T]) {
         setForm((current) => ({ ...current, [key]: value }));
-    }
-
-    function startEditing() {
-        setForm({
-            name: profile.name === 'New User' ? '' : profile.name,
-            email: profile.email,
-            dateOfBirth: profile.dateOfBirth,
-            timeOfBirth: profile.timeOfBirth,
-            gender: profile.gender,
-            genderPreferences: profile.genderPreferences ?? [],
-            height: profile.height,
-            familyPlans: profile.familyPlans,
-            familyPlansVisibleOnProfile: profile.familyPlansVisibleOnProfile ?? true,
-            workplace: profile.workplace,
-            workplaceVisibleOnProfile: profile.workplaceVisibleOnProfile ?? true,
-            jobRole: profile.jobRole,
-            jobRoleVisibleOnProfile: profile.jobRoleVisibleOnProfile ?? true,
-            school: profile.school,
-            schoolVisibleOnProfile: profile.schoolVisibleOnProfile ?? true,
-            educationLevel: profile.educationLevel,
-            educationLevelVisibleOnProfile: profile.educationLevelVisibleOnProfile ?? true,
-            religiousBeliefs: profile.religiousBeliefs,
-            drinking: profile.drinking,
-            drinkingVisibleOnProfile: profile.drinkingVisibleOnProfile ?? true,
-            smoking: profile.smoking,
-            smokingVisibleOnProfile: profile.smokingVisibleOnProfile ?? true,
-            location: profile.location,
-            bio: profile.bio,
-            photoUris: (profile.photoUris ?? []).slice(0, MAX_PHOTOS),
-        });
-        setIsEditing(true);
     }
 
     async function pickPhotos() {
@@ -168,10 +148,12 @@ export default function ProfileScreen() {
         }
 
         const pickedUris = result.assets.map((asset) => asset.uri).filter(Boolean);
-        updateForm('photoUris', Array.from(new Set([...form.photoUris, ...pickedUris])).slice(0, MAX_PHOTOS));
+        const uploadedUris = await addProfilePhotos(pickedUris.slice(0, remainingSlots));
+        updateForm('photoUris', Array.from(new Set([...form.photoUris, ...uploadedUris])).slice(0, MAX_PHOTOS));
     }
 
-    function removePhoto(uriToRemove: string) {
+    async function removePhoto(uriToRemove: string) {
+        await removeProfilePhoto(uriToRemove);
         updateForm(
             'photoUris',
             form.photoUris.filter((uri) => uri !== uriToRemove)
@@ -239,7 +221,7 @@ export default function ProfileScreen() {
                             <Ionicons name="chevron-back" size={24} color="#101010" />
                         </Pressable>
                         <Text style={styles.editTitle}>Edit Profile</Text>
-                        <Pressable style={styles.saveButton} onPress={saveProfile}>
+                        <Pressable style={styles.saveButton} onPress={saveProfile} disabled={isServiceBusy}>
                             <Text style={styles.saveText}>Save</Text>
                         </Pressable>
                     </View>
@@ -255,7 +237,11 @@ export default function ProfileScreen() {
                                     const photoUri = form.photoUris[index];
 
                                     return (
-                                        <Pressable key={index} style={styles.editPhotoSlot} onPress={pickPhotos}>
+                                        <Pressable
+                                            key={index}
+                                            style={styles.editPhotoSlot}
+                                            onPress={isServiceBusy ? undefined : pickPhotos}
+                                        >
                                             {photoUri ? (
                                                 <>
                                                     <Image source={{ uri: photoUri }} style={styles.editPhoto} contentFit="cover" />
@@ -264,6 +250,7 @@ export default function ProfileScreen() {
                                                         hitSlop={10}
                                                         style={styles.removePhotoButton}
                                                         onPress={() => removePhoto(photoUri)}
+                                                        disabled={isServiceBusy}
                                                     >
                                                         <Ionicons name="close" size={12} color="#FFFFFF" />
                                                     </Pressable>
@@ -275,9 +262,11 @@ export default function ProfileScreen() {
                                     );
                                 })}
                             </View>
-                            <Pressable style={styles.addPhotoButton} onPress={pickPhotos}>
+                            <Pressable style={styles.addPhotoButton} onPress={pickPhotos} disabled={isServiceBusy}>
                                 <Ionicons name="images-outline" size={18} color="#101010" />
-                                <Text style={styles.addPhotoText}>Choose From Gallery</Text>
+                                <Text style={styles.addPhotoText}>
+                                    {isServiceBusy ? 'Uploading...' : 'Choose From Gallery'}
+                                </Text>
                             </Pressable>
                             <Text style={styles.helperText}>Minimum 4 photos, maximum 6.</Text>
                         </EditSection>
@@ -466,7 +455,7 @@ export default function ProfileScreen() {
                     <Pressable
                         accessibilityLabel="Edit profile"
                         style={styles.circleButtonDark}
-                        onPress={startEditing}>
+                        onPress={() => router.push('/edit-profile')}>
                         <Ionicons name="pencil" size={20} color="#FFFFFF" />
                     </Pressable>
                     <Pressable
