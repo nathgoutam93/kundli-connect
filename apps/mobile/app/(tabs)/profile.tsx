@@ -459,6 +459,12 @@ export default function ProfileScreen() {
                         <Ionicons name="pencil" size={20} color="#FFFFFF" />
                     </Pressable>
                     <Pressable
+                        accessibilityLabel="View kundli"
+                        style={styles.circleButtonDark}
+                        onPress={() => router.push('/kundli')}>
+                        <Ionicons name="sparkles" size={20} color="#FFFFFF" />
+                    </Pressable>
+                    <Pressable
                         accessibilityLabel="Open subscription"
                         style={styles.circleButtonDark}
                         onPress={() => router.push('/subscriptions')}>

@@ -18,20 +18,20 @@ import { useAppState } from '@/store/use-app-state';
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function BasicsScreen() {
-    const { profile, updateProfile } = useAppState();
+    const { isServiceBusy, profile, serviceError, updateProfile } = useAppState();
     const [name, setName] = useState(profile.name === 'New User' ? '' : profile.name);
     const [email, setEmail] = useState(profile.email);
 
-    function handleContinue() {
+    async function handleContinue() {
         const trimmedName = name.trim();
         const trimmedEmail = email.trim().toLowerCase();
         const isEmailValid = EMAIL_PATTERN.test(trimmedEmail);
 
-        if (!trimmedName || !isEmailValid) {
+        if (!trimmedName || !isEmailValid || isServiceBusy) {
             return;
         }
 
-        updateProfile({
+        await updateProfile({
             name: trimmedName,
             email: trimmedEmail,
         });
@@ -81,13 +81,19 @@ export default function BasicsScreen() {
                             returnKeyType="done"
                         />
                     </View>
+
+                    {serviceError ? <Text style={styles.errorText}>{serviceError}</Text> : null}
                 </ScrollView>
 
                 <Pressable
-                    style={[styles.nextButton, !isFormValid && styles.nextButtonDisabled]}
+                    style={[styles.nextButton, (!isFormValid || isServiceBusy) && styles.nextButtonDisabled]}
                     onPress={handleContinue}
-                    disabled={!isFormValid}>
-                    <Ionicons name="chevron-forward" size={30} color="#FFFFFF" />
+                    disabled={!isFormValid || isServiceBusy}>
+                    {isServiceBusy ? (
+                        <Text style={styles.savingText}>Saving</Text>
+                    ) : (
+                        <Ionicons name="chevron-forward" size={30} color="#FFFFFF" />
+                    )}
                 </Pressable>
             </KeyboardAvoidingView>
         </SafeAreaView>
@@ -115,6 +121,11 @@ const styles = StyleSheet.create({
     },
     section: {
         gap: 6,
+    },
+    errorText: {
+        fontSize: 14,
+        lineHeight: 18,
+        color: '#B42318',
     },
     heading: {
         fontSize: 28,
@@ -148,5 +159,11 @@ const styles = StyleSheet.create({
     },
     nextButtonDisabled: {
         opacity: 0.45,
+    },
+    savingText: {
+        fontSize: 14,
+        lineHeight: 18,
+        fontWeight: '700',
+        color: '#FFFFFF',
     },
 });

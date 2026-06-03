@@ -34,6 +34,10 @@ export type UserProfile = {
   phoneNumber: string;
   photoUris: string[];
   birthPlace: string;
+  birthLatitude: string;
+  birthLongitude: string;
+  birthTimezone: string;
+  kundliStatus: 'pending' | 'generated' | 'failed';
 };
 
 export type CompatibilityBreakdown = {
@@ -191,6 +195,10 @@ export const DEFAULT_PROFILE: UserProfile = {
   phoneNumber: '',
   photoUris: [],
   birthPlace: '',
+  birthLatitude: '',
+  birthLongitude: '',
+  birthTimezone: '5.5',
+  kundliStatus: 'pending',
 };
 
 function compatibility(id: string, score: number): CompatibilityResult {

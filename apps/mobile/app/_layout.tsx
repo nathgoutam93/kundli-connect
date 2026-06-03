@@ -17,9 +17,10 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="match" options={{ presentation: 'modal' }} />
         <Stack.Screen name="chat/[chatId]" options={{ headerShown: true, title: 'Chat' }} />
-        <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
-        <Stack.Screen name="edit-profile" options={{ headerShown: true, title: 'Edit profile' }} />
-        <Stack.Screen name="subscriptions" options={{ headerShown: true, title: 'Subscription' }} />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="edit-profile" />
+        <Stack.Screen name="kundli" />
+        <Stack.Screen name="subscriptions" />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>

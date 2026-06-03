@@ -295,7 +295,7 @@ export default function KundliDetailsScreen() {
             timeOfBirth: timeParts.join(':'),
         });
 
-        router.push('/(onboarding)/cosmic-chart');
+        router.push('/(onboarding)/birth-location');
     }
 
     return (

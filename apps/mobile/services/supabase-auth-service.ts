@@ -3,6 +3,29 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { getSupabaseClient } from '@/lib/supabase';
 import type { UserProfile } from '@/constants/mock-data';
 
+export type KundliSummary = {
+  generatedAt: string;
+  ascendant?: string;
+  moonSign?: string;
+  sunSign?: string;
+  nakshatra?: string;
+  gana?: string;
+  nadi?: string;
+  manglik?: string;
+  yogas: string[];
+  doshas: string[];
+  overview: string;
+  raw?: Record<string, unknown>;
+  rawResponse?: Record<string, unknown>;
+  chartImages?: KundliChartImage[];
+};
+
+export type KundliChartImage = {
+  chartId: string;
+  path: string;
+  signedUrl: string;
+};
+
 type ProfileRow = {
   id: string;
   phone: string | null;
@@ -14,6 +37,10 @@ type ProfileRow = {
   date_of_birth: string | null;
   time_of_birth: string | null;
   birth_place: string | null;
+  birth_latitude: number | null;
+  birth_longitude: number | null;
+  birth_timezone: string | null;
+  kundli_generation_status: 'pending' | 'generated' | 'failed';
   location: string | null;
   bio: string | null;
   family_plans: string | null;
@@ -39,6 +66,13 @@ type ProfileRow = {
 
 type ProfilePhotoRow = {
   storage_path: string;
+};
+
+type KundliRow = {
+  parsed_summary: KundliSummary;
+  raw_response: Record<string, unknown>;
+  chart_image_paths: Record<string, string> | null;
+  generated_at: string;
 };
 
 function maskPhone(phone: string) {
@@ -162,7 +196,7 @@ export async function ensureCurrentUserProfile() {
       phone: user.phone || null,
       email: user.email || null,
     },
-    { onConflict: 'id' }
+    { onConflict: 'id', ignoreDuplicates: true }
   );
 
   if (error) {
@@ -203,6 +237,10 @@ export async function getCurrentUserProfile() {
         'date_of_birth',
         'time_of_birth',
         'birth_place',
+        'birth_latitude',
+        'birth_longitude',
+        'birth_timezone',
+        'kundli_generation_status',
         'location',
         'bio',
         'family_plans',
@@ -287,7 +325,16 @@ export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProf
     photoUris: row.photo_urls ?? profile.photoUris,
     phoneNumber: row.phone || profile.phoneNumber,
     birthPlace: row.birth_place || profile.birthPlace,
+    birthLatitude: row.birth_latitude === null ? profile.birthLatitude : String(row.birth_latitude),
+    birthLongitude: row.birth_longitude === null ? profile.birthLongitude : String(row.birth_longitude),
+    birthTimezone: row.birth_timezone || profile.birthTimezone,
+    kundliStatus: row.kundli_generation_status || profile.kundliStatus,
   };
+}
+
+function toNullableNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export async function updateCurrentUserProfile(profile: UserProfile, options?: { onboardingCompleted?: boolean }) {
@@ -316,6 +363,10 @@ export async function updateCurrentUserProfile(profile: UserProfile, options?: {
     date_of_birth: toDatabaseDate(profile.dateOfBirth),
     time_of_birth: profile.timeOfBirth || null,
     birth_place: profile.birthPlace || null,
+    birth_latitude: toNullableNumber(profile.birthLatitude),
+    birth_longitude: toNullableNumber(profile.birthLongitude),
+    birth_timezone: profile.birthTimezone || null,
+    kundli_generation_status: profile.kundliStatus,
     location: profile.location || null,
     bio: profile.bio || null,
     family_plans: profile.familyPlans || null,
@@ -344,6 +395,76 @@ export async function updateCurrentUserProfile(profile: UserProfile, options?: {
   if (error) {
     throw error;
   }
+}
+
+export async function generateCurrentUserKundli() {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.functions.invoke<{ parsed_summary: KundliSummary }>('generate-kundli');
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.parsed_summary) {
+    throw new Error('Kundli generation did not return a summary.');
+  }
+
+  return data.parsed_summary;
+}
+
+export async function getCurrentUserKundliSummary() {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('kundlis')
+    .select('parsed_summary, raw_response, chart_image_paths, generated_at')
+    .eq('user_id', user.id)
+    .maybeSingle<KundliRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const chartImages = await Promise.all(
+    Object.entries(data.chart_image_paths ?? {}).map(async ([chartId, path]) => {
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from('kundli-charts')
+        .createSignedUrl(path, 60 * 60);
+
+      if (signedUrlError || !signedUrlData?.signedUrl) {
+        return null;
+      }
+
+      return {
+        chartId,
+        path,
+        signedUrl: signedUrlData.signedUrl,
+      };
+    })
+  );
+
+  return {
+    ...data.parsed_summary,
+    generatedAt: data.parsed_summary.generatedAt || data.generated_at,
+    rawResponse: data.raw_response,
+    chartImages: chartImages.filter((image): image is KundliChartImage => Boolean(image)),
+  };
 }
 
 export async function uploadCurrentUserProfilePhoto(uri: string, sortOrder: number) {
@@ -416,6 +537,62 @@ export async function uploadCurrentUserProfilePhoto(uri: string, sortOrder: numb
   return data.publicUrl;
 }
 
+function getProfilePhotoStoragePath(publicUrl: string, userId: string) {
+  const marker = '/profile-photos/';
+  const markerIndex = publicUrl.indexOf(marker);
+
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const storagePath = decodeURIComponent(publicUrl.slice(markerIndex + marker.length));
+  return storagePath.startsWith(`${userId}/`) ? storagePath : null;
+}
+
+export async function updateCurrentUserProfilePhotoOrder(publicUrls: string[]) {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    throw new Error('No authenticated Supabase user found.');
+  }
+
+  const storagePaths = publicUrls
+    .map((publicUrl) => getProfilePhotoStoragePath(publicUrl, user.id))
+    .filter((storagePath): storagePath is string => Boolean(storagePath));
+
+  for (const [index, storagePath] of storagePaths.entries()) {
+    const { error } = await supabase
+      .from('profile_photos')
+      .update({ sort_order: index + 1000 })
+      .eq('user_id', user.id)
+      .eq('storage_path', storagePath);
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  for (const [index, storagePath] of storagePaths.entries()) {
+    const { error } = await supabase
+      .from('profile_photos')
+      .update({ sort_order: index })
+      .eq('user_id', user.id)
+      .eq('storage_path', storagePath);
+
+    if (error) {
+      throw error;
+    }
+  }
+}
+
 export async function deleteCurrentUserProfilePhoto(publicUrl: string) {
   const supabase = getSupabaseClient();
   const {
@@ -431,16 +608,8 @@ export async function deleteCurrentUserProfilePhoto(publicUrl: string) {
     throw new Error('No authenticated Supabase user found.');
   }
 
-  const marker = '/profile-photos/';
-  const markerIndex = publicUrl.indexOf(marker);
-
-  if (markerIndex === -1) {
-    return;
-  }
-
-  const storagePath = decodeURIComponent(publicUrl.slice(markerIndex + marker.length));
-
-  if (!storagePath.startsWith(`${user.id}/`)) {
+  const storagePath = getProfilePhotoStoragePath(publicUrl, user.id);
+  if (!storagePath) {
     return;
   }
 

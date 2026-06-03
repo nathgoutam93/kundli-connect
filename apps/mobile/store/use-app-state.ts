@@ -40,13 +40,16 @@ import {
   applyProfileRow,
   ensureCurrentUserProfile,
   getCurrentSession,
+  generateCurrentUserKundli,
   getCurrentUserProfile,
   requestPhoneOtp,
   signOut,
   deleteCurrentUserProfilePhoto,
   updateCurrentUserProfile,
+  updateCurrentUserProfilePhotoOrder,
   uploadCurrentUserProfilePhoto,
   verifyPhoneOtp,
+  type KundliSummary,
 } from '@/services/supabase-auth-service';
 
 type AppState = {
@@ -74,6 +77,7 @@ type AppState = {
   completeGoogleLogin: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
   updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
+  generateKundli: () => Promise<KundliSummary>;
   refreshProfile: () => Promise<void>;
   addProfilePhotos: (photoUris: string[]) => Promise<string[]>;
   removeProfilePhoto: (photoUri: string) => Promise<void>;
@@ -196,7 +200,14 @@ export const useAppState = create<AppState>()(
         await withBusy(set, async () => {
           await verifyPhoneOtp(phoneNumber, otp);
           const user = await ensureCurrentUserProfile();
-          const profileRow = await getCurrentUserProfile();
+          let profileRow: Awaited<ReturnType<typeof getCurrentUserProfile>> = null;
+
+          try {
+            profileRow = await getCurrentUserProfile();
+          } catch (error) {
+            console.warn('Supabase profile fetch after OTP verification failed; continuing login.', error);
+          }
+
           set((state) => ({
             isAuthenticated: true,
             hasCompletedOnboarding: Boolean(profileRow?.onboarding_completed),
@@ -226,8 +237,22 @@ export const useAppState = create<AppState>()(
         await withBusy(set, async () => {
           const profile = await mockOnboardingService.complete(get().profile);
           await updateCurrentUserProfile(profile, { onboardingCompleted: true });
+          let kundliStatus = profile.kundliStatus;
+
+          if (kundliStatus !== 'generated') {
+            try {
+              await generateCurrentUserKundli();
+              kundliStatus = 'generated';
+            } catch {
+              kundliStatus = 'failed';
+            }
+          }
+
           set({
-            profile,
+            profile: {
+              ...profile,
+              kundliStatus,
+            },
             hasCompletedOnboarding: true,
           });
         });
@@ -243,8 +268,43 @@ export const useAppState = create<AppState>()(
           const profile = await mockProfileService.updateProfile(get().profile, profileUpdates);
           if (get().isAuthenticated) {
             await updateCurrentUserProfile(profile);
+            if (profileUpdates.photoUris !== undefined) {
+              await updateCurrentUserProfilePhotoOrder(profile.photoUris ?? []);
+            }
           }
           set({ profile });
+        });
+      },
+      generateKundli: async () => {
+        set((state) => ({
+          profile: {
+            ...state.profile,
+            kundliStatus: 'pending',
+            updatedAt: new Date().toISOString(),
+          },
+        }));
+
+        return withBusy(set, async () => {
+          try {
+            const summary = await generateCurrentUserKundli();
+            set((state) => ({
+              profile: {
+                ...state.profile,
+                kundliStatus: 'generated',
+                updatedAt: new Date().toISOString(),
+              },
+            }));
+            return summary;
+          } catch (error) {
+            set((state) => ({
+              profile: {
+                ...state.profile,
+                kundliStatus: 'failed',
+                updatedAt: new Date().toISOString(),
+              },
+            }));
+            throw error;
+          }
         });
       },
       refreshProfile: async () => {
