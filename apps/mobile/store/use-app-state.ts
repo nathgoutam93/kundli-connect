@@ -14,6 +14,7 @@ import {
   MOCK_SUBSCRIPTION_PLANS,
   type ActivityItem,
   type ChatPreview,
+  type CompatibilityResult,
   type CreditHistoryItem,
   type DiscoverProfile,
   type LikeItem,
@@ -39,7 +40,9 @@ import {
   applyProfileRow,
   ensureCurrentUserProfile,
   getDiscoverProfiles,
+  getPendingIncomingLikes,
   getCurrentSession,
+  createLike,
   generateCurrentUserKundli,
   generateMatchScore,
   getCurrentUserProfile,
@@ -81,6 +84,7 @@ type AppState = {
   generateKundli: () => Promise<KundliSummary>;
   generateCompatibility: (profileId: string) => Promise<CompatibilityResult>;
   refreshDiscoverProfiles: () => Promise<void>;
+  refreshLikes: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   addProfilePhotos: (photoUris: string[]) => Promise<string[]>;
   removeProfilePhoto: (photoUri: string) => Promise<void>;
@@ -186,8 +190,8 @@ export const useAppState = create<AppState>()(
             profile: profileRow ? applyProfileRow(state.profile, profileRow) : state.profile,
           }));
 
-          const discoverProfiles = await getDiscoverProfiles();
-          set({ discoverProfiles });
+          const [discoverProfiles, likes] = await Promise.all([getDiscoverProfiles(), getPendingIncomingLikes()]);
+          set({ discoverProfiles, likes });
         });
       },
       requestOtp: async (phoneNumber) => {
@@ -327,6 +331,17 @@ export const useAppState = create<AppState>()(
           set({ discoverProfiles });
         });
       },
+      refreshLikes: async () => {
+        if (!get().isAuthenticated) {
+          set({ likes: [] });
+          return;
+        }
+
+        await withBusy(set, async () => {
+          const likes = await getPendingIncomingLikes();
+          set({ likes });
+        });
+      },
       refreshProfile: async () => {
         if (!get().isAuthenticated) {
           return;
@@ -455,7 +470,7 @@ export const useAppState = create<AppState>()(
             ...state.activity,
           ],
         }));
-        await withBusy(set, () => mockDiscoveryService.likeProfile(profile, message));
+        await withBusy(set, () => createLike(profileId, message));
         return true;
       },
       replyToLike: async (likeId, message) => {

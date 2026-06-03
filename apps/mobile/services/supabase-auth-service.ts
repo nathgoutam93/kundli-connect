@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { getSupabaseClient } from '@/lib/supabase';
-import type { CompatibilityResult, DiscoverProfile, ProfileDetail, UserProfile } from '@/constants/mock-data';
+import type { CompatibilityResult, DiscoverProfile, LikeItem, ProfileDetail, UserProfile } from '@/constants/mock-data';
 
 export type KundliSummary = {
   generatedAt: string;
@@ -75,6 +75,31 @@ type KundliRow = {
   raw_response: Record<string, unknown>;
   chart_image_paths: Record<string, string> | null;
   generated_at: string;
+};
+
+type PendingLikeRow = {
+  id: string;
+  from_user_id: string;
+  opening_message: string | null;
+  match_score_id: string | null;
+  created_at: string;
+};
+
+type LikeProfileRow = Pick<
+  ProfileRow,
+  | 'id'
+  | 'display_name'
+  | 'gender'
+  | 'date_of_birth'
+  | 'birth_place'
+  | 'location'
+  | 'bio'
+  | 'created_at'
+>;
+
+type MatchScoreSummaryRow = {
+  id: string;
+  compatibility_report: CompatibilityResult | null;
 };
 
 function maskPhone(phone: string) {
@@ -176,6 +201,32 @@ function createCompatibility(profileId: string): CompatibilityResult {
       { label: 'Overall Match', value: score },
     ],
   };
+}
+
+function timeAgo(value: string) {
+  const createdAt = new Date(value).getTime();
+  const elapsedMs = Date.now() - createdAt;
+
+  if (!Number.isFinite(createdAt) || elapsedMs < 0) {
+    return 'Just now';
+  }
+
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  if (elapsedMinutes < 1) {
+    return 'Just now';
+  }
+
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h ago`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d ago`;
 }
 
 function addDetail(details: ProfileDetail[], label: string, icon: ProfileDetail['icon'], text?: string | null) {
@@ -493,6 +544,117 @@ export async function getDiscoverProfiles() {
     .filter((profile): profile is DiscoverProfile => Boolean(profile));
 }
 
+export async function getPendingIncomingLikes() {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    return [];
+  }
+
+  const { data: likeRows, error: likeError } = await supabase
+    .from('likes')
+    .select('id, from_user_id, opening_message, match_score_id, created_at')
+    .eq('to_user_id', user.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .returns<PendingLikeRow[]>();
+
+  if (likeError) {
+    throw likeError;
+  }
+
+  const likes = likeRows ?? [];
+  if (likes.length === 0) {
+    return [];
+  }
+
+  const fromUserIds = [...new Set(likes.map((like) => like.from_user_id))];
+  const { data: profileRows, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, display_name, gender, date_of_birth, birth_place, location, bio, created_at')
+    .in('id', fromUserIds)
+    .returns<LikeProfileRow[]>();
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  const { data: photoRows, error: photoError } = await supabase
+    .from('profile_photos')
+    .select('user_id, storage_path, sort_order')
+    .in('user_id', fromUserIds)
+    .order('sort_order', { ascending: true })
+    .returns<ProfilePhotoRow[]>();
+
+  if (photoError) {
+    throw photoError;
+  }
+
+  const matchScoreIds = [
+    ...new Set(likes.map((like) => like.match_score_id).filter((id): id is string => Boolean(id))),
+  ];
+  const { data: matchScoreRows, error: matchScoreError } =
+    matchScoreIds.length > 0
+      ? await supabase
+          .from('match_scores')
+          .select('id, compatibility_report')
+          .in('id', matchScoreIds)
+          .returns<MatchScoreSummaryRow[]>()
+      : { data: [] as MatchScoreSummaryRow[], error: null };
+
+  if (matchScoreError) {
+    throw matchScoreError;
+  }
+
+  const profilesById = new Map((profileRows ?? []).map((profile) => [profile.id, profile]));
+  const scoresById = new Map((matchScoreRows ?? []).map((score) => [score.id, score.compatibility_report]));
+  const photosByUserId = new Map<string, string[]>();
+
+  for (const photo of photoRows ?? []) {
+    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
+    const photos = photosByUserId.get(photo.user_id) ?? [];
+    photos.push(publicUrlData.publicUrl);
+    photosByUserId.set(photo.user_id, photos);
+  }
+
+  return likes
+    .map((like): LikeItem | null => {
+      const fromProfile = profilesById.get(like.from_user_id);
+      if (!fromProfile) {
+        return null;
+      }
+
+      const photoUrls = photosByUserId.get(like.from_user_id) ?? [];
+      const avatarUrl =
+        photoUrls[0] ??
+        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85';
+      const compatibility = like.match_score_id ? scoresById.get(like.match_score_id) : null;
+
+      return {
+        id: like.id,
+        createdAt: like.created_at,
+        fromProfileId: like.from_user_id,
+        fromName: fromProfile.display_name?.trim() || 'KundaliKonnect Member',
+        age: calculateAge(fromProfile.date_of_birth),
+        location: fromProfile.location || fromProfile.birth_place || 'India',
+        avatarUrl,
+        openingMessage: like.opening_message?.trim() || 'Sent you a like.',
+        note: fromProfile.bio?.trim() || 'Interested in connecting.',
+        timeAgo: timeAgo(like.created_at),
+        compatibility: compatibility ?? createCompatibility(like.from_user_id),
+      };
+    })
+    .filter((like): like is LikeItem => Boolean(like));
+}
+
 export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProfile {
   return {
     ...profile,
@@ -616,7 +778,7 @@ export async function generateCurrentUserKundli() {
 export async function generateMatchScore(targetProfileId: string) {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase.functions.invoke<{ compatibility: CompatibilityResult }>(
-    'create-like-with-score',
+    'generate-match-score',
     {
       body: { targetProfileId },
     }
@@ -631,6 +793,23 @@ export async function generateMatchScore(targetProfileId: string) {
   }
 
   return data.compatibility;
+}
+
+export async function createLike(targetProfileId: string, openingMessage: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.functions.invoke<{ like: { id: string } }>('create-like', {
+    body: { targetProfileId, openingMessage },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.like) {
+    throw new Error('Like creation did not return a like record.');
+  }
+
+  return data.like;
 }
 
 export async function getCurrentUserKundliSummary() {

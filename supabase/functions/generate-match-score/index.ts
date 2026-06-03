@@ -29,6 +29,7 @@ type CompatibilityResult = {
 };
 
 type MatchScoreRow = {
+  id: string;
   compatibility_report: CompatibilityResult;
   raw_report: Record<string, unknown>;
 };
@@ -323,7 +324,9 @@ serve(async (request) => {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  if (!body.targetProfileId) {
+  const targetProfileId = body.targetProfileId?.trim();
+
+  if (!targetProfileId) {
     return jsonResponse({ error: "Missing targetProfileId" }, 400);
   }
 
@@ -341,11 +344,15 @@ serve(async (request) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  const pair = orderedPair(user.id, body.targetProfileId);
+  if (user.id === targetProfileId) {
+    return jsonResponse({ error: "Cannot generate a match score for yourself." }, 400);
+  }
+
+  const pair = orderedPair(user.id, targetProfileId);
 
   const { data: existingScore, error: existingScoreError } = await adminClient
     .from("match_scores")
-    .select("compatibility_report, raw_report")
+    .select("id, compatibility_report, raw_report")
     .eq("user_a_id", pair.userAId)
     .eq("user_b_id", pair.userBId)
     .maybeSingle<MatchScoreRow>();
@@ -356,6 +363,7 @@ serve(async (request) => {
 
   if (existingScore?.compatibility_report) {
     return jsonResponse({
+      matchScoreId: existingScore.id,
       compatibility: compatibilityWithRawMatchReport(existingScore),
       cached: true,
     });
@@ -366,7 +374,7 @@ serve(async (request) => {
     .select(
       "id, gender, display_name, date_of_birth, time_of_birth, birth_latitude, birth_longitude, birth_timezone",
     )
-    .in("id", [user.id, body.targetProfileId])
+    .in("id", [user.id, targetProfileId])
     .returns<ProfileBirthDetails[]>();
 
   if (profileError) {
@@ -375,7 +383,7 @@ serve(async (request) => {
 
   const viewer = profiles?.find((profile) => profile.id === user.id);
   const target = profiles?.find(
-    (profile) => profile.id === body.targetProfileId,
+    (profile) => profile.id === targetProfileId,
   );
 
   if (!viewer || !target) {
@@ -437,7 +445,7 @@ serve(async (request) => {
     }
 
     const compatibility = parseMatchReport(rawResponse, target.id);
-    const { error: scoreUpsertError } = await adminClient
+    const { data: matchScore, error: scoreUpsertError } = await adminClient
       .from("match_scores")
       .upsert(
         {
@@ -450,13 +458,19 @@ serve(async (request) => {
           generated_at: compatibility.generatedAt,
         },
         { onConflict: "user_a_id,user_b_id" },
-      );
+      )
+      .select("id")
+      .single<{ id: string }>();
 
     if (scoreUpsertError) {
       return jsonResponse({ error: scoreUpsertError.message }, 500);
     }
 
-    return jsonResponse({ compatibility });
+    if (!matchScore) {
+      return jsonResponse({ error: "Match score was not saved." }, 500);
+    }
+
+    return jsonResponse({ matchScoreId: matchScore.id, compatibility });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Match-making request failed.";

@@ -70,9 +70,14 @@ export default function DiscoverScreen() {
     }
 
     async function handleLike(profileId: string, message: string) {
-        const sent = await sendLike(profileId, message);
-        if (!sent) {
-            Alert.alert('Credits needed', 'Add credits or upgrade to keep liking profiles.');
+        try {
+            const sent = await sendLike(profileId, message);
+            if (!sent) {
+                Alert.alert('Credits needed', 'Add credits or upgrade to keep liking profiles.');
+            }
+        } catch (error) {
+            const alertMessage = error instanceof Error ? error.message : 'Could not send like.';
+            Alert.alert('Like unavailable', alertMessage);
         }
     }
 

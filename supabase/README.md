@@ -21,7 +21,8 @@ This directory stores the repo-side Supabase backend for Kundali Konnect.
 supabase link --project-ref your-project-ref
 supabase db push
 supabase functions deploy generate-kundli
-supabase functions deploy create-like-with-score
+supabase functions deploy generate-match-score
+supabase functions deploy create-like
 supabase functions deploy send-push-notification
 ```
 

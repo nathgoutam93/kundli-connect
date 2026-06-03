@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Alert,
     Image,
@@ -24,8 +24,14 @@ type ScoreModalTab = 'score' | 'profile';
 export default function LikesScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
-    const { consumeCredit, likes, profile, replyToLike, dismissLike } = useAppState();
+    const { consumeCredit, likes, profile, refreshLikes, replyToLike, dismissLike } = useAppState();
     const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        void refreshLikes().catch((error) => {
+            console.warn('Failed to refresh incoming likes.', error);
+        });
+    }, [refreshLikes]);
 
     function updateReply(likeId: string, value: string) {
         setReplyDrafts((drafts) => ({
@@ -228,7 +234,7 @@ function KundaliScorePreview({
     ];
     const overallScore = like.compatibility.overallScore ?? 80;
     const summary =
-        like.compatibility.summary ??
+        like.compatibility.raw.conclusion.match_report ?? like.compatibility.summary ??
         `${safeViewerName} and ${likedName}'s charts show a balanced opening for conversation and steady emotional rhythm.`;
     const yogas = like.compatibility.yogas ?? ['Hamsa', 'Dhan'];
     const doshas = like.compatibility.doshas ?? ['Kendrum'];
