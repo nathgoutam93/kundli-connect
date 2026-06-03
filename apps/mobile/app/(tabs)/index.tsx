@@ -24,6 +24,7 @@ export default function DiscoverScreen() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isRevisitingSkipped, setIsRevisitingSkipped] = useState(false);
     const {
+        chats,
         discoverProfiles,
         consumeCredit,
         creditsBalance,
@@ -48,10 +49,12 @@ export default function DiscoverScreen() {
     useEffect(() => {
         setCurrentIndex(0);
     }, [discoverProfiles.length]);
-    const freshProfiles = discoverProfiles.filter(
+    const matchedProfileIds = chats.map((chat) => chat.participantId);
+    const recommendedProfiles = discoverProfiles.filter((item) => !matchedProfileIds.includes(item.id));
+    const freshProfiles = recommendedProfiles.filter(
         (item) => !skippedProfileIds.includes(item.id) && !likedProfileIds.includes(item.id)
     );
-    const skippedProfiles = discoverProfiles.filter(
+    const skippedProfiles = recommendedProfiles.filter(
         (item) => skippedProfileIds.includes(item.id) && !likedProfileIds.includes(item.id)
     );
     const shouldRevisitSkipped = freshProfiles.length === 0 && isRevisitingSkipped;

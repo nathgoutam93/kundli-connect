@@ -111,6 +111,7 @@ export type ChatPreview = {
   unreadCount: number;
   hidden?: boolean;
   compatibilityScore: number;
+  compatibility?: CompatibilityResult;
   hasMoreMessages?: boolean;
   messages: ChatMessage[];
 };

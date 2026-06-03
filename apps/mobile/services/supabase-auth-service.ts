@@ -139,6 +139,8 @@ type ChatLikeRow = {
   match_score_id: string | null;
 };
 
+type MatchedLikeParticipantRow = Pick<ChatLikeRow, 'from_user_id' | 'to_user_id'>;
+
 type SentChatMessageResult = {
   id: string;
   createdAt: string;
@@ -517,7 +519,24 @@ export async function getDiscoverProfiles() {
     return [];
   }
 
-  const { data: profileRows, error } = await supabase
+  const { data: matchedLikeRows, error: matchedLikeError } = await supabase
+    .from('likes')
+    .select('from_user_id, to_user_id')
+    .eq('status', 'matched')
+    .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`)
+    .returns<MatchedLikeParticipantRow[]>();
+
+  if (matchedLikeError) {
+    throw matchedLikeError;
+  }
+
+  const matchedProfileIds = [
+    ...new Set(
+      (matchedLikeRows ?? []).map((like) => (like.from_user_id === user.id ? like.to_user_id : like.from_user_id))
+    ),
+  ];
+
+  let profileQuery = supabase
     .from('profiles')
     .select(
       [
@@ -551,7 +570,13 @@ export async function getDiscoverProfiles() {
       ].join(', ')
     )
     .eq('onboarding_completed', true)
-    .neq('id', user.id)
+    .neq('id', user.id);
+
+  if (matchedProfileIds.length > 0) {
+    profileQuery = profileQuery.not('id', 'in', `(${matchedProfileIds.join(',')})`);
+  }
+
+  const { data: profileRows, error } = await profileQuery
     .order('created_at', { ascending: false })
     .limit(50)
     .returns<ProfileRow[]>();
@@ -933,6 +958,7 @@ export async function getChats(messageLimit = 15) {
         lastMessage: messagePage.messages.at(-1)?.text ?? 'Start the conversation',
         unreadCount: unreadResult.count ?? 0,
         compatibilityScore: compatibility?.overallScore ?? createCompatibility(participantId).overallScore,
+        ...(compatibility ? { compatibility } : {}),
         hasMoreMessages: messagePage.hasMoreMessages,
         messages: messagePage.messages,
       };

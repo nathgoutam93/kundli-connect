@@ -151,6 +151,7 @@ export const mockLikesService = {
       lastMessage: message.trim(),
       unreadCount: 0,
       compatibilityScore: like.compatibility.overallScore,
+      compatibility: like.compatibility,
       messages: [
         {
           id: `${chatId}-intro`,

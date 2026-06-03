@@ -73,6 +73,7 @@ function buildMatchProfile(
     (profile) => profile.id === chat?.participantId || profile.name === chat?.name
   );
   const like = likes.find((item) => item.fromProfileId === chat?.participantId || item.fromName === chat?.name);
+  const chatCompatibility = chat?.compatibility;
 
   if (discoverProfile) {
     return {
@@ -82,8 +83,8 @@ function buildMatchProfile(
       bio: discoverProfile.bio,
       photos: discoverProfile.photos,
       details: discoverProfile.details,
-      compatibilityScore: discoverProfile.compatibility.overallScore,
-      compatibility: discoverProfile.compatibility,
+      compatibilityScore: chatCompatibility?.overallScore ?? discoverProfile.compatibility.overallScore,
+      compatibility: chatCompatibility ?? discoverProfile.compatibility,
     };
   }
 
@@ -98,8 +99,8 @@ function buildMatchProfile(
         { label: 'location', icon: 'home-outline', text: like.location },
         { label: 'intent', icon: 'heart-outline', text: like.note },
       ],
-      compatibilityScore: like.compatibility.overallScore,
-      compatibility: like.compatibility,
+      compatibilityScore: chatCompatibility?.overallScore ?? like.compatibility.overallScore,
+      compatibility: chatCompatibility ?? like.compatibility,
     };
   }
 
@@ -109,10 +110,15 @@ function buildMatchProfile(
     bio: chat?.lastMessage ?? 'This profile is available from your match thread.',
     photos: chat?.avatarUrl ? [chat.avatarUrl] : [],
     details: [
-      { label: 'compatibility', icon: 'sparkles-outline', text: `${chat?.compatibilityScore ?? 0}% Kundli match` },
+      {
+        label: 'compatibility',
+        icon: 'sparkles-outline',
+        text: `${chatCompatibility?.overallScore ?? chat?.compatibilityScore ?? 0}% Kundli match`,
+      },
       { label: 'status', icon: 'chatbubble-ellipses-outline', text: 'Matched conversation' },
     ],
-    compatibilityScore: chat?.compatibilityScore ?? 0,
+    compatibilityScore: chatCompatibility?.overallScore ?? chat?.compatibilityScore ?? 0,
+    compatibility: chatCompatibility,
   };
 }
 
