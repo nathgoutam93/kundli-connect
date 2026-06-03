@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { getSupabaseClient } from '@/lib/supabase';
-import type { UserProfile } from '@/constants/mock-data';
+import type { CompatibilityResult, DiscoverProfile, ProfileDetail, UserProfile } from '@/constants/mock-data';
 
 export type KundliSummary = {
   generatedAt: string;
@@ -65,7 +65,9 @@ type ProfileRow = {
 };
 
 type ProfilePhotoRow = {
+  user_id: string;
   storage_path: string;
+  sort_order: number;
 };
 
 type KundliRow = {
@@ -132,6 +134,118 @@ function base64ToArrayBuffer(base64: string) {
   }
 
   return bytes.buffer;
+}
+
+function calculateAge(dateOfBirth: string | null) {
+  if (!dateOfBirth) {
+    return 0;
+  }
+
+  const birthDate = new Date(`${dateOfBirth}T00:00:00.000Z`);
+  if (Number.isNaN(birthDate.getTime())) {
+    return 0;
+  }
+
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  const monthDelta = today.getUTCMonth() - birthDate.getUTCMonth();
+
+  if (monthDelta < 0 || (monthDelta === 0 && today.getUTCDate() < birthDate.getUTCDate())) {
+    age -= 1;
+  }
+
+  return Math.max(age, 0);
+}
+
+function createCompatibility(profileId: string): CompatibilityResult {
+  const seed = [...profileId].reduce((total, char) => total + char.charCodeAt(0), 0);
+  const score = 72 + (seed % 19);
+
+  return {
+    id: `compat-${profileId}`,
+    generatedAt: new Date().toISOString(),
+    overallScore: score,
+    summary:
+      'your charts are ready for a kundli match once you initiate interest and generate the detailed score.',
+    yogas: ['Gajkesari', 'Dhan'],
+    doshas: score > 82 ? ['None prominent'] : ['Needs review'],
+    breakdown: [
+      { label: 'Guna Milan', value: Math.min(score + 6, 96) },
+      { label: 'Nadi Compatibility', value: Math.max(score - 8, 60) },
+      { label: 'Bhakoot/Rashi Matching', value: Math.min(score + 3, 98) },
+      { label: 'Overall Match', value: score },
+    ],
+  };
+}
+
+function addDetail(details: ProfileDetail[], label: string, icon: ProfileDetail['icon'], text?: string | null) {
+  if (!text) {
+    return;
+  }
+
+  details.push({ label, icon, text });
+}
+
+function profileRowToDiscoverProfile(row: ProfileRow, photos: string[]): DiscoverProfile | null {
+  const name = row.display_name?.trim() || 'KundaliKonnect Member';
+
+  if (!row.id) {
+    return null;
+  }
+
+  const details: ProfileDetail[] = [];
+  addDetail(details, 'gender', 'person-outline', row.gender);
+  addDetail(details, 'preference', 'magnet-outline', row.gender_preferences?.join(', '));
+  addDetail(details, 'height', 'resize-outline', row.height);
+
+  const work = [
+    row.job_role_visible_on_profile ? row.job_role : null,
+    row.workplace_visible_on_profile ? row.workplace : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  addDetail(details, 'work', 'briefcase-outline', work);
+
+  const education = [
+    row.education_level_visible_on_profile ? row.education_level : null,
+    row.school_visible_on_profile ? row.school : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  addDetail(details, 'education', 'school-outline', education);
+
+  addDetail(details, 'religion', 'sparkles-outline', row.religious_beliefs);
+
+  if (row.family_plans_visible_on_profile) {
+    addDetail(details, 'family', 'people-outline', row.family_plans);
+  }
+
+  if (row.drinking_visible_on_profile) {
+    addDetail(details, 'drinking', 'wine-outline', row.drinking);
+  }
+
+  if (row.smoking_visible_on_profile) {
+    addDetail(details, 'smoking', 'cloud-outline', row.smoking);
+  }
+
+  const bio = row.bio?.trim() || 'Looking for a meaningful connection.';
+
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    name,
+    age: calculateAge(row.date_of_birth),
+    gender: row.gender || '',
+    location: row.location || row.birth_place || 'India',
+    bio,
+    prompt: bio,
+    photos:
+      photos.length > 0
+        ? photos
+        : ['https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=85'],
+    details,
+    compatibility: createCompatibility(row.id),
+  };
 }
 
 export async function requestPhoneOtp(phone: string) {
@@ -292,6 +406,93 @@ export async function getCurrentUserProfile() {
   };
 }
 
+export async function getDiscoverProfiles() {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    return [];
+  }
+
+  const { data: profileRows, error } = await supabase
+    .from('profiles')
+    .select(
+      [
+        'id',
+        'display_name',
+        'gender',
+        'gender_preferences',
+        'height',
+        'date_of_birth',
+        'birth_place',
+        'location',
+        'bio',
+        'family_plans',
+        'family_plans_visible_on_profile',
+        'workplace',
+        'workplace_visible_on_profile',
+        'job_role',
+        'job_role_visible_on_profile',
+        'school',
+        'school_visible_on_profile',
+        'education_level',
+        'education_level_visible_on_profile',
+        'religious_beliefs',
+        'drinking',
+        'drinking_visible_on_profile',
+        'smoking',
+        'smoking_visible_on_profile',
+        'onboarding_completed',
+        'created_at',
+        'updated_at',
+      ].join(', ')
+    )
+    .eq('onboarding_completed', true)
+    .neq('id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(50)
+    .returns<ProfileRow[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  const profileIds = (profileRows ?? []).map((profile) => profile.id);
+  if (profileIds.length === 0) {
+    return [];
+  }
+
+  const { data: photoRows, error: photoError } = await supabase
+    .from('profile_photos')
+    .select('user_id, storage_path, sort_order')
+    .in('user_id', profileIds)
+    .order('sort_order', { ascending: true })
+    .returns<ProfilePhotoRow[]>();
+
+  if (photoError) {
+    throw photoError;
+  }
+
+  const photosByUserId = new Map<string, string[]>();
+  for (const photo of photoRows ?? []) {
+    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
+    const photos = photosByUserId.get(photo.user_id) ?? [];
+    photos.push(publicUrlData.publicUrl);
+    photosByUserId.set(photo.user_id, photos);
+  }
+
+  return (profileRows ?? [])
+    .map((profile) => profileRowToDiscoverProfile(profile, photosByUserId.get(profile.id) ?? []))
+    .filter((profile): profile is DiscoverProfile => Boolean(profile));
+}
+
 export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProfile {
   return {
     ...profile,
@@ -410,6 +611,26 @@ export async function generateCurrentUserKundli() {
   }
 
   return data.parsed_summary;
+}
+
+export async function generateMatchScore(targetProfileId: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.functions.invoke<{ compatibility: CompatibilityResult }>(
+    'create-like-with-score',
+    {
+      body: { targetProfileId },
+    }
+  );
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.compatibility) {
+    throw new Error('Match-making did not return a compatibility report.');
+  }
+
+  return data.compatibility;
 }
 
 export async function getCurrentUserKundliSummary() {

@@ -10,7 +10,6 @@ import {
   MOCK_ACTIVITY,
   MOCK_CHATS,
   MOCK_CREDIT_HISTORY,
-  MOCK_DISCOVER_PROFILES,
   MOCK_LIKES,
   MOCK_SUBSCRIPTION_PLANS,
   type ActivityItem,
@@ -39,8 +38,10 @@ import {
 import {
   applyProfileRow,
   ensureCurrentUserProfile,
+  getDiscoverProfiles,
   getCurrentSession,
   generateCurrentUserKundli,
+  generateMatchScore,
   getCurrentUserProfile,
   requestPhoneOtp,
   signOut,
@@ -78,6 +79,8 @@ type AppState = {
   completeOnboarding: () => Promise<void>;
   updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
   generateKundli: () => Promise<KundliSummary>;
+  generateCompatibility: (profileId: string) => Promise<CompatibilityResult>;
+  refreshDiscoverProfiles: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   addProfilePhotos: (photoUris: string[]) => Promise<string[]>;
   removeProfilePhoto: (photoUri: string) => Promise<void>;
@@ -162,7 +165,7 @@ export const useAppState = create<AppState>()(
       isHydrated: false,
       isServiceBusy: false,
       ...initialPersistedState,
-      discoverProfiles: MOCK_DISCOVER_PROFILES,
+      discoverProfiles: [],
       subscriptionPlans: MOCK_SUBSCRIPTION_PLANS,
       hydrateAuthSession: async () => {
         await withBusy(set, async () => {
@@ -182,6 +185,9 @@ export const useAppState = create<AppState>()(
             hasCompletedOnboarding: Boolean(profileRow?.onboarding_completed),
             profile: profileRow ? applyProfileRow(state.profile, profileRow) : state.profile,
           }));
+
+          const discoverProfiles = await getDiscoverProfiles();
+          set({ discoverProfiles });
         });
       },
       requestOtp: async (phoneNumber) => {
@@ -305,6 +311,20 @@ export const useAppState = create<AppState>()(
             }));
             throw error;
           }
+        });
+      },
+      generateCompatibility: async (profileId) => {
+        return withBusy(set, () => generateMatchScore(profileId));
+      },
+      refreshDiscoverProfiles: async () => {
+        if (!get().isAuthenticated) {
+          set({ discoverProfiles: [] });
+          return;
+        }
+
+        await withBusy(set, async () => {
+          const discoverProfiles = await getDiscoverProfiles();
+          set({ discoverProfiles });
         });
       },
       refreshProfile: async () => {
@@ -570,7 +590,7 @@ export const useAppState = create<AppState>()(
         await withBusy(set, () => signOut());
         set({
           ...initialPersistedState,
-          discoverProfiles: MOCK_DISCOVER_PROFILES,
+          discoverProfiles: [],
           subscriptionPlans: MOCK_SUBSCRIPTION_PLANS,
           isServiceBusy: false,
           serviceError: undefined,

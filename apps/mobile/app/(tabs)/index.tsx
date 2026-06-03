@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
@@ -27,13 +27,27 @@ export default function DiscoverScreen() {
         discoverProfiles,
         consumeCredit,
         creditsBalance,
+        generateCompatibility,
         likedProfileIds,
         passProfile,
         profile: viewer,
+        refreshDiscoverProfiles,
         sendLike,
+        isServiceBusy,
+        serviceError,
         skippedProfileIds,
         subscription,
     } = useAppState();
+
+    useEffect(() => {
+        void refreshDiscoverProfiles().catch((error) => {
+            console.warn('Failed to refresh discover profiles.', error);
+        });
+    }, [refreshDiscoverProfiles]);
+
+    useEffect(() => {
+        setCurrentIndex(0);
+    }, [discoverProfiles.length]);
     const freshProfiles = discoverProfiles.filter(
         (item) => !skippedProfileIds.includes(item.id) && !likedProfileIds.includes(item.id)
     );
@@ -62,12 +76,20 @@ export default function DiscoverScreen() {
         }
     }
 
-    async function handleViewScore(profileName: string) {
+    async function handleViewScore(profileId: string, profileName: string) {
         const consumed = await consumeCredit(`Generated score for ${profileName}`);
         if (!consumed) {
             Alert.alert('Credits needed', 'Add credits or upgrade to generate match scores.');
+            return undefined;
         }
-        return consumed;
+
+        try {
+            return await generateCompatibility(profileId);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Could not generate match score.';
+            Alert.alert('Match score unavailable', message);
+            return undefined;
+        }
     }
 
     if (!profile) {
@@ -75,14 +97,24 @@ export default function DiscoverScreen() {
 
         return (
             <View style={styles.emptyDiscover}>
-                <Ionicons name="sparkles-outline" size={34} color="#8D7F74" />
+                <Ionicons name={isServiceBusy ? 'hourglass-outline' : 'sparkles-outline'} size={34} color="#8D7F74" />
                 <Text style={styles.emptyDiscoverTitle}>
-                    {canRevisitSkipped ? 'No new profiles' : 'No more profiles today'}
+                    {isServiceBusy
+                        ? 'Finding profiles'
+                        : serviceError
+                            ? 'Could not load profiles'
+                            : canRevisitSkipped
+                                ? 'No new profiles'
+                                : 'No more profiles today'}
                 </Text>
                 <Text style={styles.emptyDiscoverText}>
-                    {canRevisitSkipped
-                        ? 'You can revisit profiles you skipped earlier.'
-                        : 'New recommendations will appear here after more profiles are added.'}
+                    {isServiceBusy
+                        ? 'Recommendations from Supabase will appear here shortly.'
+                        : serviceError
+                            ? serviceError
+                            : canRevisitSkipped
+                                ? 'You can revisit profiles you skipped earlier.'
+                                : 'New recommendations will appear here after more profiles are added.'}
                 </Text>
                 {canRevisitSkipped ? (
                     <Pressable
@@ -109,7 +141,7 @@ export default function DiscoverScreen() {
             isRevisitingSkipped={isRevisitingSkipped}
             onPass={() => handlePass(profile.id)}
             onLike={(message) => handleLike(profile.id, message)}
-            onViewScore={() => handleViewScore(profile.name)}
+            onViewScore={() => handleViewScore(profile.id, profile.name)}
         />
     );
 }
@@ -133,20 +165,30 @@ function RecommendationCard({
     isRevisitingSkipped: boolean;
     onPass: () => void;
     onLike: (message: string) => void;
-    onViewScore: () => Promise<boolean>;
+    onViewScore: () => Promise<CompatibilityResult | undefined>;
 }) {
     const insets = useSafeAreaInsets();
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [openingMessage, setOpeningMessage] = useState('');
     const [isScoreOpen, setIsScoreOpen] = useState(false);
+    const [isScoreLoading, setIsScoreLoading] = useState(false);
+    const [compatibility, setCompatibility] = useState(profile.compatibility);
     const [heroPhoto, ...contentPhotos] = profile.photos;
     const firstDetails = profile.details.slice(0, 4);
     const secondDetails = profile.details.slice(4);
     const canSendLike = openingMessage.trim().length > 0;
 
     async function requestLike() {
-        const canViewScore = await onViewScore();
-        if (canViewScore) {
+        if (isScoreLoading) {
+            return;
+        }
+
+        setIsScoreLoading(true);
+        const generatedCompatibility = await onViewScore();
+        setIsScoreLoading(false);
+
+        if (generatedCompatibility) {
+            setCompatibility(generatedCompatibility);
             setIsScoreOpen(true);
         }
     }
@@ -228,12 +270,14 @@ function RecommendationCard({
                 <Pressable
                     accessibilityLabel={`Like ${profile.name}`}
                     onPress={requestLike}
+                    disabled={isScoreLoading}
                     style={({ pressed }) => [
                         styles.actionButton,
                         styles.likeButton,
+                        isScoreLoading && styles.actionButtonDisabled,
                         pressed && styles.actionButtonPressed,
                     ]}>
-                    <Ionicons name="heart" size={30} color="#FFFFFF" />
+                    <Ionicons name={isScoreLoading ? 'hourglass-outline' : 'heart'} size={30} color="#FFFFFF" />
                 </Pressable>
             </View>
 
@@ -295,7 +339,7 @@ function RecommendationCard({
                 visible={isScoreOpen}
                 onRequestClose={skipAfterScore}>
                 <KundaliMatchScore
-                    compatibility={profile.compatibility}
+                    compatibility={compatibility}
                     likedPhotoUri={heroPhoto}
                     likedName={profile.name}
                     onInitiate={initiateChatAfterScore}
@@ -357,8 +401,7 @@ function KundaliMatchScore({
                             <Text style={styles.analysisTitle}>Kundli Match Analysis ✦</Text>
                             <Text style={styles.analysisText}>
                                 {safeViewerName} and {likedName}
-                                {`'s charts show ${compatibility.summary.toLowerCase()} `}
-                                <Text style={styles.moreText}>...more</Text>
+                                {`'s match analysis: ${compatibility.summary} `}
                             </Text>
                         </View>
                     </View>
@@ -681,6 +724,9 @@ const styles = StyleSheet.create({
     actionButtonPressed: {
         opacity: 0.7,
         transform: [{ scale: 0.96 }],
+    },
+    actionButtonDisabled: {
+        opacity: 0.68,
     },
     modalLayer: {
         flex: 1,
