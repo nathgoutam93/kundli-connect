@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,9 +9,15 @@ import { useAppState } from '@/store/use-app-state';
 
 export default function ChatsScreen() {
   const insets = useSafeAreaInsets();
-  const { chats } = useAppState();
+  const { chats, isAuthenticated, refreshChats } = useAppState();
   const visibleChats = chats.filter((chat) => !chat.hidden);
   const hiddenMatches = chats.filter((chat) => chat.hidden);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      void refreshChats();
+    }
+  }, [isAuthenticated, refreshChats]);
 
   return (
     <View style={styles.screen}>

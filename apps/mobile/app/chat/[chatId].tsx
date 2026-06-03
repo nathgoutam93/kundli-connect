@@ -137,7 +137,16 @@ export default function ChatThreadScreen() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [draft, setDraft] = useState('');
-  const { chats, discoverProfiles, likes, markChatRead, sendChatMessage } = useAppState();
+  const {
+    chats,
+    discoverProfiles,
+    isServiceBusy,
+    likes,
+    loadEarlierChatMessages,
+    markChatRead,
+    refreshChats,
+    sendChatMessage,
+  } = useAppState();
   const chatId = Array.isArray(params.chatId) ? params.chatId[0] : params.chatId;
   const chat = chats.find((item) => item.id === chatId);
 
@@ -153,6 +162,12 @@ export default function ChatThreadScreen() {
     () => buildMatchProfile(chat, discoverProfiles, likes),
     [chat, discoverProfiles, likes]
   );
+
+  useEffect(() => {
+    if (chatId && !chat) {
+      void refreshChats();
+    }
+  }, [chat, chatId, refreshChats]);
 
   useEffect(() => {
     if (chatId) {
@@ -195,7 +210,14 @@ export default function ChatThreadScreen() {
           <ThreadTab activeTab={activeTab} label="Profile" tab="profile" onPress={setActiveTab} />
         </View>
 
-        {activeTab === 'chat' ? <ChatTab thread={thread} /> : null}
+        {activeTab === 'chat' ? (
+          <ChatTab
+            isLoadingEarlier={isServiceBusy}
+            thread={thread}
+            hasMoreMessages={Boolean(chat?.hasMoreMessages)}
+            onLoadEarlier={() => (chatId ? loadEarlierChatMessages(chatId) : Promise.resolve())}
+          />
+        ) : null}
         {activeTab === 'score' ? <ScoreTab profile={matchProfile} /> : null}
         {activeTab === 'profile' ? <ProfileTab profile={matchProfile} /> : null}
 
@@ -265,12 +287,35 @@ function ThreadTab({
   );
 }
 
-function ChatTab({ thread }: { thread: ChatThread }) {
+function ChatTab({
+  hasMoreMessages,
+  isLoadingEarlier,
+  onLoadEarlier,
+  thread,
+}: {
+  hasMoreMessages: boolean;
+  isLoadingEarlier: boolean;
+  onLoadEarlier: () => Promise<void>;
+  thread: ChatThread;
+}) {
   return (
     <ScrollView
       contentContainerStyle={styles.messages}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled">
+      {hasMoreMessages ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={isLoadingEarlier}
+          onPress={onLoadEarlier}
+          style={({ pressed }: { pressed: boolean }) => [
+            styles.loadEarlierButton,
+            pressed && styles.loadEarlierPressed,
+            isLoadingEarlier && styles.loadEarlierDisabled,
+          ]}>
+          <Text style={styles.loadEarlierText}>{isLoadingEarlier ? 'Loading...' : 'Earlier messages'}</Text>
+        </Pressable>
+      ) : null}
       {thread.messages.length > 0 ? (
         thread.messages.map((message) => (
           <View
@@ -468,6 +513,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     marginTop: 10,
+  },
+  loadEarlierButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderColor: '#E2DDD8',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 18,
+    minHeight: 38,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  loadEarlierPressed: {
+    opacity: 0.65,
+  },
+  loadEarlierDisabled: {
+    opacity: 0.5,
+  },
+  loadEarlierText: {
+    color: '#4A403A',
+    fontSize: 13,
+    fontWeight: '800',
   },
   messageRow: {
     alignItems: 'flex-end',

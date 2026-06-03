@@ -8,7 +8,6 @@ import {
   DEFAULT_PROFILE,
   DEFAULT_SUBSCRIPTION,
   MOCK_ACTIVITY,
-  MOCK_CHATS,
   MOCK_CREDIT_HISTORY,
   MOCK_LIKES,
   MOCK_SUBSCRIPTION_PLANS,
@@ -26,7 +25,6 @@ import {
 } from '@/constants/mock-data';
 import {
   mockAuthService,
-  mockChatService,
   mockCreditsService,
   mockDiscoveryService,
   mockLikesService,
@@ -46,8 +44,12 @@ import {
   replyToLike as replyToLikeInSupabase,
   generateCurrentUserKundli,
   generateMatchScore,
+  getChatMessages,
+  getChats,
   getCurrentUserProfile,
   requestPhoneOtp,
+  markChatRead as markChatReadInSupabase,
+  sendMessage as sendChatMessageInSupabase,
   signOut,
   deleteCurrentUserProfilePhoto,
   updateCurrentUserProfile,
@@ -86,6 +88,8 @@ type AppState = {
   generateCompatibility: (profileId: string) => Promise<CompatibilityResult>;
   refreshDiscoverProfiles: () => Promise<void>;
   refreshLikes: () => Promise<void>;
+  refreshChats: () => Promise<void>;
+  loadEarlierChatMessages: (chatId: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   addProfilePhotos: (photoUris: string[]) => Promise<string[]>;
   removeProfilePhoto: (photoUri: string) => Promise<void>;
@@ -112,7 +116,7 @@ const initialPersistedState = {
   skippedProfileIds: [] as string[],
   likedProfileIds: [] as string[],
   likes: MOCK_LIKES,
-  chats: MOCK_CHATS,
+  chats: [],
   activity: MOCK_ACTIVITY,
   creditsBalance: 12,
   creditHistory: MOCK_CREDIT_HISTORY,
@@ -191,8 +195,12 @@ export const useAppState = create<AppState>()(
             profile: profileRow ? applyProfileRow(state.profile, profileRow) : state.profile,
           }));
 
-          const [discoverProfiles, likes] = await Promise.all([getDiscoverProfiles(), getPendingIncomingLikes()]);
-          set({ discoverProfiles, likes });
+          const [discoverProfiles, likes, chats] = await Promise.all([
+            getDiscoverProfiles(),
+            getPendingIncomingLikes(),
+            getChats(15),
+          ]);
+          set({ discoverProfiles, likes, chats });
         });
       },
       requestOtp: async (phoneNumber) => {
@@ -341,6 +349,43 @@ export const useAppState = create<AppState>()(
         await withBusy(set, async () => {
           const likes = await getPendingIncomingLikes();
           set({ likes });
+        });
+      },
+      refreshChats: async () => {
+        if (!get().isAuthenticated) {
+          set({ chats: [] });
+          return;
+        }
+
+        await withBusy(set, async () => {
+          const chats = await getChats(15);
+          set({ chats });
+        });
+      },
+      loadEarlierChatMessages: async (chatId) => {
+        const chat = get().chats.find((item) => item.id === chatId);
+        const oldestMessage = chat?.messages[0];
+        if (!chat || !oldestMessage || !chat.hasMoreMessages) {
+          return;
+        }
+
+        await withBusy(set, async () => {
+          const page = await getChatMessages(chatId, {
+            before: oldestMessage.createdAt,
+            limit: 30,
+          });
+
+          set((state) => ({
+            chats: state.chats.map((item) =>
+              item.id === chatId
+                ? {
+                    ...item,
+                    hasMoreMessages: page.hasMoreMessages,
+                    messages: [...page.messages, ...item.messages],
+                  }
+                : item
+            ),
+          }));
         });
       },
       refreshProfile: async () => {
@@ -512,7 +557,7 @@ export const useAppState = create<AppState>()(
           return;
         }
 
-        const message = await withBusy(set, () => mockChatService.sendMessage(chat, trimmedText));
+        const message = await withBusy(set, () => sendChatMessageInSupabase(chatId, trimmedText));
         set((state) => ({
           chats: state.chats.map((item) =>
             item.id === chatId
@@ -528,10 +573,27 @@ export const useAppState = create<AppState>()(
         }));
       },
       markChatRead: async (chatId) => {
+        const readAt = new Date().toISOString();
         set((state) => ({
-          chats: state.chats.map((chat) => (chat.id === chatId ? { ...chat, unreadCount: 0 } : chat)),
+          chats: state.chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  unreadCount: 0,
+                  messages: chat.messages.map((message) =>
+                    message.senderId === 'me'
+                      ? message
+                      : {
+                          ...message,
+                          status: 'read',
+                          readAt: message.readAt ?? readAt,
+                        }
+                  ),
+                }
+              : chat
+          ),
         }));
-        await withBusy(set, () => mockChatService.markRead(chatId));
+        await withBusy(set, () => markChatReadInSupabase(chatId));
       },
       purchaseCredits: async (amount) => {
         const result = await withBusy(set, () => mockCreditsService.purchaseCredits(get().creditsBalance, amount));

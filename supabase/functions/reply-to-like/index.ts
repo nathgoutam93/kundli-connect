@@ -35,6 +35,8 @@ type MessageRow = {
   created_at: string;
   sender_id: string;
   body: string;
+  status: "sent" | "read";
+  read_at: string | null;
 };
 
 const corsHeaders = {
@@ -199,7 +201,7 @@ serve(async (request) => {
   const { data: existingMessages, error: existingMessagesError } =
     await adminClient
       .from("messages")
-      .select("id, created_at, sender_id, body")
+      .select("id, created_at, sender_id, body, status, read_at")
       .eq("chat_id", chat.id)
       .order("created_at", { ascending: true })
       .returns<MessageRow[]>();
@@ -220,15 +222,18 @@ serve(async (request) => {
           sender_id: like.from_user_id,
           body: openingMessage,
           created_at: like.created_at,
+          status: "read",
+          read_at: now,
         },
         {
           chat_id: chat.id,
           sender_id: user.id,
           body: replyMessage,
           created_at: now,
+          status: "sent",
         },
       ])
-      .select("id, created_at, sender_id, body")
+      .select("id, created_at, sender_id, body, status, read_at")
       .order("created_at", { ascending: true })
       .returns<MessageRow[]>();
 
@@ -302,13 +307,21 @@ serve(async (request) => {
       unreadCount: 0,
       compatibilityScore:
         matchScore?.compatibility_report?.overallScore ?? 75,
-      messages: messages.map((message) => ({
-        id: message.id,
-        createdAt: message.created_at,
-        senderId: message.sender_id === user.id ? "me" : message.sender_id,
-        text: message.body,
-        ...(message.sender_id === user.id ? { seenAt: now } : { readAt: now }),
-      })),
+      messages: messages.map((message) => {
+        const isMine = message.sender_id === user.id;
+
+        return {
+          id: message.id,
+          createdAt: message.created_at,
+          senderId: isMine ? "me" : message.sender_id,
+          text: message.body,
+          status: message.status,
+          ...(isMine && message.status === "read" && message.read_at
+            ? { seenAt: message.read_at }
+            : {}),
+          ...(!isMine && message.read_at ? { readAt: message.read_at } : {}),
+        };
+      }),
     },
   });
 });

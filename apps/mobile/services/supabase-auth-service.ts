@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { getSupabaseClient } from '@/lib/supabase';
 import type {
+  ChatMessage,
   ChatPreview,
   CompatibilityResult,
   DiscoverProfile,
@@ -107,6 +108,43 @@ type LikeProfileRow = Pick<
 type MatchScoreSummaryRow = {
   id: string;
   compatibility_report: CompatibilityResult | null;
+};
+
+type ChatRow = {
+  id: string;
+  like_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ChatParticipantRow = {
+  chat_id: string;
+  last_read_at: string | null;
+};
+
+type MessageRow = {
+  id: string;
+  chat_id: string;
+  sender_id: string;
+  body: string;
+  status: 'sent' | 'read';
+  read_at: string | null;
+  created_at: string;
+};
+
+type ChatLikeRow = {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  match_score_id: string | null;
+};
+
+type SentChatMessageResult = {
+  id: string;
+  createdAt: string;
+  senderId: 'me';
+  text: string;
+  status?: 'sent' | 'read';
 };
 
 function maskPhone(phone: string) {
@@ -660,6 +698,286 @@ export async function getPendingIncomingLikes() {
       };
     })
     .filter((like): like is LikeItem => Boolean(like));
+}
+
+function mapMessageRow(message: MessageRow, currentUserId: string): ChatMessage {
+  const isMine = message.sender_id === currentUserId;
+
+  return {
+    id: message.id,
+    createdAt: message.created_at,
+    senderId: isMine ? 'me' : message.sender_id,
+    text: message.body,
+    status: message.status,
+    ...(isMine && message.status === 'read' && message.read_at ? { seenAt: message.read_at } : {}),
+    ...(!isMine && message.read_at ? { readAt: message.read_at } : {}),
+  };
+}
+
+async function getChatMessagesPage(
+  chatId: string,
+  currentUserId: string,
+  options?: { before?: string; limit?: number }
+) {
+  const supabase = getSupabaseClient();
+  const limit = options?.limit ?? 30;
+  let query = supabase
+    .from('messages')
+    .select('id, chat_id, sender_id, body, status, read_at, created_at')
+    .eq('chat_id', chatId)
+    .order('created_at', { ascending: false });
+
+  if (options?.before) {
+    query = query.lt('created_at', options.before);
+  }
+
+  const { data, error } = await query.limit(limit + 1).returns<MessageRow[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = data ?? [];
+  const pageRows = rows.slice(0, limit).reverse();
+
+  return {
+    messages: pageRows.map((message) => mapMessageRow(message, currentUserId)),
+    hasMoreMessages: rows.length > limit,
+  };
+}
+
+export async function getChatMessages(
+  chatId: string,
+  options?: { before?: string; limit?: number }
+) {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    return { messages: [], hasMoreMessages: false };
+  }
+
+  return getChatMessagesPage(chatId, user.id, options);
+}
+
+export async function getChats(messageLimit = 15) {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    return [];
+  }
+
+  const { data: participantRows, error: participantError } = await supabase
+    .from('chat_participants')
+    .select('chat_id, last_read_at')
+    .eq('user_id', user.id)
+    .returns<ChatParticipantRow[]>();
+
+  if (participantError) {
+    throw participantError;
+  }
+
+  const chatIds = (participantRows ?? []).map((participant) => participant.chat_id);
+  if (chatIds.length === 0) {
+    return [];
+  }
+
+  const { data: chatRows, error: chatError } = await supabase
+    .from('chats')
+    .select('id, like_id, created_at, updated_at')
+    .in('id', chatIds)
+    .order('updated_at', { ascending: false })
+    .returns<ChatRow[]>();
+
+  if (chatError) {
+    throw chatError;
+  }
+
+  const chats = chatRows ?? [];
+  const likeIds = [...new Set(chats.map((chat) => chat.like_id).filter((id): id is string => Boolean(id)))];
+
+  const { data: likeRows, error: likeError } =
+    likeIds.length > 0
+      ? await supabase
+          .from('likes')
+          .select('id, from_user_id, to_user_id, match_score_id')
+          .in('id', likeIds)
+          .returns<ChatLikeRow[]>()
+      : { data: [] as ChatLikeRow[], error: null };
+
+  if (likeError) {
+    throw likeError;
+  }
+
+  const likesById = new Map((likeRows ?? []).map((like) => [like.id, like]));
+  const participantIds = [
+    ...new Set(
+      chats
+        .map((chat) => {
+          const like = chat.like_id ? likesById.get(chat.like_id) : undefined;
+          if (!like) {
+            return null;
+          }
+
+          return like.from_user_id === user.id ? like.to_user_id : like.from_user_id;
+        })
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  const { data: profileRows, error: profileError } =
+    participantIds.length > 0
+      ? await supabase
+          .from('profiles')
+          .select('id, display_name, gender, date_of_birth, birth_place, location, bio, created_at')
+          .in('id', participantIds)
+          .returns<LikeProfileRow[]>()
+      : { data: [] as LikeProfileRow[], error: null };
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  const { data: photoRows, error: photoError } =
+    participantIds.length > 0
+      ? await supabase
+          .from('profile_photos')
+          .select('user_id, storage_path, sort_order')
+          .in('user_id', participantIds)
+          .order('sort_order', { ascending: true })
+          .returns<ProfilePhotoRow[]>()
+      : { data: [] as ProfilePhotoRow[], error: null };
+
+  if (photoError) {
+    throw photoError;
+  }
+
+  const matchScoreIds = [
+    ...new Set(
+      (likeRows ?? []).map((like) => like.match_score_id).filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const { data: matchScoreRows, error: matchScoreError } =
+    matchScoreIds.length > 0
+      ? await supabase
+          .from('match_scores')
+          .select('id, compatibility_report')
+          .in('id', matchScoreIds)
+          .returns<MatchScoreSummaryRow[]>()
+      : { data: [] as MatchScoreSummaryRow[], error: null };
+
+  if (matchScoreError) {
+    throw matchScoreError;
+  }
+
+  const profilesById = new Map((profileRows ?? []).map((profile) => [profile.id, profile]));
+  const scoresById = new Map((matchScoreRows ?? []).map((score) => [score.id, score.compatibility_report]));
+  const photosByUserId = new Map<string, string[]>();
+
+  for (const photo of photoRows ?? []) {
+    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
+    const photos = photosByUserId.get(photo.user_id) ?? [];
+    photos.push(publicUrlData.publicUrl);
+    photosByUserId.set(photo.user_id, photos);
+  }
+
+  const previewRows = await Promise.all(
+    chats.map(async (chat): Promise<ChatPreview | null> => {
+      const like = chat.like_id ? likesById.get(chat.like_id) : undefined;
+      if (!like) {
+        return null;
+      }
+
+      const participantId = like.from_user_id === user.id ? like.to_user_id : like.from_user_id;
+      const profile = profilesById.get(participantId);
+      const photoUrls = photosByUserId.get(participantId) ?? [];
+      const compatibility = like.match_score_id ? scoresById.get(like.match_score_id) : null;
+      const [messagePage, unreadResult] = await Promise.all([
+        getChatMessagesPage(chat.id, user.id, { limit: messageLimit }),
+        supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('chat_id', chat.id)
+          .neq('sender_id', user.id)
+          .neq('status', 'read'),
+      ]);
+
+      if (unreadResult.error) {
+        throw unreadResult.error;
+      }
+
+      return {
+        id: chat.id,
+        createdAt: chat.created_at,
+        updatedAt: chat.updated_at,
+        participantId,
+        name: profile?.display_name?.trim() || 'KundaliKonnect Member',
+        avatarUrl:
+          photoUrls[0] ??
+          'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85',
+        lastMessage: messagePage.messages.at(-1)?.text ?? 'Start the conversation',
+        unreadCount: unreadResult.count ?? 0,
+        compatibilityScore: compatibility?.overallScore ?? createCompatibility(participantId).overallScore,
+        hasMoreMessages: messagePage.hasMoreMessages,
+        messages: messagePage.messages,
+      };
+    })
+  );
+
+  return previewRows.filter((chat): chat is ChatPreview => Boolean(chat));
+}
+
+export async function sendMessage(chatId: string, text: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc('send_chat_message', {
+    p_chat_id: chatId,
+    p_body: text,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const message = data as SentChatMessageResult | null;
+  if (!message) {
+    throw new Error('Message send did not return a message record.');
+  }
+
+  return {
+    id: message.id,
+    createdAt: message.createdAt,
+    senderId: 'me',
+    text: message.text,
+    status: message.status ?? 'sent',
+  } satisfies ChatMessage;
+}
+
+export async function markChatRead(chatId: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc('mark_chat_read', {
+    p_chat_id: chatId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data as string;
 }
 
 export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProfile {

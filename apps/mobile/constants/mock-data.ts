@@ -95,6 +95,7 @@ export type ChatMessage = {
   createdAt: string;
   senderId: 'me' | string;
   text: string;
+  status?: 'sent' | 'read';
   readAt?: string;
   seenAt?: string;
 };
@@ -110,6 +111,7 @@ export type ChatPreview = {
   unreadCount: number;
   hidden?: boolean;
   compatibilityScore: number;
+  hasMoreMessages?: boolean;
   messages: ChatMessage[];
 };
 
