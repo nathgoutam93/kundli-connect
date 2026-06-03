@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { type ChatPreview } from '@/constants/mock-data';
@@ -10,13 +10,35 @@ import { useAppState } from '@/store/use-app-state';
 export default function ChatsScreen() {
   const insets = useSafeAreaInsets();
   const { chats, isAuthenticated, refreshChats } = useAppState();
-  const visibleChats = chats.filter((chat) => !chat.hidden);
-  const hiddenMatches = chats.filter((chat) => chat.hidden);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const displayedChats = isInitialLoading ? [] : chats;
+  const visibleChats = displayedChats.filter((chat) => !chat.hidden);
+  const hiddenMatches = displayedChats.filter((chat) => chat.hidden);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      void refreshChats();
+    let isMounted = true;
+
+    if (!isAuthenticated) {
+      setIsInitialLoading(false);
+      return () => {
+        isMounted = false;
+      };
     }
+
+    setIsInitialLoading(true);
+    void refreshChats()
+      .catch((error) => {
+        console.warn('Failed to refresh chats.', error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsInitialLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [isAuthenticated, refreshChats]);
 
   return (
@@ -29,8 +51,16 @@ export default function ChatsScreen() {
         showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Matches</Text>
 
-        <MatchSection title="Your turn" count={visibleChats.length} matches={visibleChats} />
-        <MatchSection title="Hidden" count={hiddenMatches.length} matches={hiddenMatches} />
+        {isInitialLoading ? (
+          <View style={styles.loader}>
+            <ActivityIndicator size="large" color="#2D241E" />
+          </View>
+        ) : (
+          <>
+            <MatchSection title="Your turn" count={visibleChats.length} matches={visibleChats} />
+            <MatchSection title="Hidden" count={hiddenMatches.length} matches={hiddenMatches} />
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -105,6 +135,12 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 22,
+  },
+  loader: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 220,
+    paddingVertical: 32,
   },
   sectionHeader: {
     alignItems: 'center',

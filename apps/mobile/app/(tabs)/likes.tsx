@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     Alert,
+    ActivityIndicator,
     Image,
     KeyboardAvoidingView,
     Modal,
@@ -26,11 +27,26 @@ export default function LikesScreen() {
     const router = useRouter();
     const { consumeCredit, likes, profile, refreshLikes, replyToLike, dismissLike } = useAppState();
     const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const displayedLikes = isInitialLoading ? [] : likes;
 
     useEffect(() => {
-        void refreshLikes().catch((error) => {
-            console.warn('Failed to refresh incoming likes.', error);
-        });
+        let isMounted = true;
+
+        setIsInitialLoading(true);
+        void refreshLikes()
+            .catch((error) => {
+                console.warn('Failed to refresh incoming likes.', error);
+            })
+            .finally(() => {
+                if (isMounted) {
+                    setIsInitialLoading(false);
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
     }, [refreshLikes]);
 
     function updateReply(likeId: string, value: string) {
@@ -74,13 +90,17 @@ export default function LikesScreen() {
                     </View>
                     <View style={styles.countBadge}>
                         <Ionicons name="heart" size={16} color="#FFFFFF" />
-                        <Text style={styles.countText}>{likes.length}</Text>
+                        <Text style={styles.countText}>{displayedLikes.length}</Text>
                     </View>
                 </View>
 
-                {likes.length > 0 ? (
+                {isInitialLoading ? (
+                    <View style={styles.loader}>
+                        <ActivityIndicator size="large" color="#2D241E" />
+                    </View>
+                ) : displayedLikes.length > 0 ? (
                     <View style={styles.list}>
-                        {likes.map((like) => (
+                        {displayedLikes.map((like) => (
                             <LikeCard
                                 key={like.id}
                                 like={like}
@@ -542,6 +562,12 @@ const styles = StyleSheet.create({
     },
     list: {
         gap: 0,
+    },
+    loader: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 220,
+        paddingVertical: 32,
     },
     card: {
         backgroundColor: '#ffffff00',
