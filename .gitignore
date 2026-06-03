@@ -42,7 +42,9 @@ yarn-error.*
 
 # local env files
 .env
+.env.*
 .env*.local
+!.env.example
 
 # Supabase local/link cache
 supabase/.temp/
