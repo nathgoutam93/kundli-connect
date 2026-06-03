@@ -23,6 +23,7 @@ supabase db push
 supabase functions deploy generate-kundli
 supabase functions deploy generate-match-score
 supabase functions deploy create-like
+supabase functions deploy reply-to-like
 supabase functions deploy send-push-notification
 ```
 

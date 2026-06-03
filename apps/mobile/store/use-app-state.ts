@@ -43,6 +43,7 @@ import {
   getPendingIncomingLikes,
   getCurrentSession,
   createLike,
+  replyToLike as replyToLikeInSupabase,
   generateCurrentUserKundli,
   generateMatchScore,
   getCurrentUserProfile,
@@ -479,7 +480,7 @@ export const useAppState = create<AppState>()(
           return undefined;
         }
 
-        const chat = await withBusy(set, () => mockLikesService.replyToLike(like, message));
+        const chat = await withBusy(set, () => replyToLikeInSupabase(likeId, message));
         set((state) => ({
           likes: state.likes.filter((item) => item.id !== likeId),
           chats: [chat, ...state.chats.filter((item) => item.id !== chat.id)],

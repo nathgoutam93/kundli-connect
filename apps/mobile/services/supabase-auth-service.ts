@@ -1,7 +1,14 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { getSupabaseClient } from '@/lib/supabase';
-import type { CompatibilityResult, DiscoverProfile, LikeItem, ProfileDetail, UserProfile } from '@/constants/mock-data';
+import type {
+  ChatPreview,
+  CompatibilityResult,
+  DiscoverProfile,
+  LikeItem,
+  ProfileDetail,
+  UserProfile,
+} from '@/constants/mock-data';
 
 export type KundliSummary = {
   generatedAt: string;
@@ -810,6 +817,23 @@ export async function createLike(targetProfileId: string, openingMessage: string
   }
 
   return data.like;
+}
+
+export async function replyToLike(likeId: string, message: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.functions.invoke<{ chat: ChatPreview }>('reply-to-like', {
+    body: { likeId, message },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.chat) {
+    throw new Error('Reply did not return a chat record.');
+  }
+
+  return data.chat;
 }
 
 export async function getCurrentUserKundliSummary() {
