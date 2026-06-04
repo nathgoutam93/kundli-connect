@@ -279,6 +279,23 @@ serve(async (request) => {
     return jsonResponse({ error: updatedChatError.message }, 500);
   }
 
+  await adminClient.from("activity_events").insert([
+    {
+      user_id: user.id,
+      event_type: "match",
+      title: "You made a match",
+      description: replyMessage,
+      metadata: { likeId: like.id, chatId: chat.id },
+    },
+    {
+      user_id: like.from_user_id,
+      event_type: "match",
+      title: "You made a match",
+      description: "Open Chats to continue the conversation.",
+      metadata: { likeId: like.id, chatId: chat.id },
+    },
+  ]);
+
   const { data: profile, error: profileError } = await adminClient
     .from("profiles")
     .select("id, display_name")

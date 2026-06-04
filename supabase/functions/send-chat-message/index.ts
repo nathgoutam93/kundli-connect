@@ -175,6 +175,14 @@ serve(async (request) => {
     if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
       EdgeRuntime.waitUntil(pushPromise);
     }
+
+    await adminClient.from("activity_events").insert({
+      user_id: participant.user_id,
+      event_type: "message",
+      title: `${senderProfile?.display_name?.trim() || "Someone"} sent a message`,
+      description: text,
+      metadata: { chatId, messageId: (message as SentChatMessageResult).id, fromUserId: user.id },
+    });
   }
 
   return jsonResponse({ message: message as SentChatMessageResult });

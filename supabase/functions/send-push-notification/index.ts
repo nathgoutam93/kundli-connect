@@ -21,6 +21,7 @@ type SendPushBody = {
   title?: string;
   body?: string;
   data?: Record<string, unknown>;
+  notificationType?: "likes" | "matches" | "messages" | "astrologyReports";
 };
 
 const expoPushEndpoint = "https://exp.host/--/api/v2/push/send";
@@ -126,6 +127,40 @@ serve(async (request) => {
         { error: "Client requests can only send notifications to the current user." },
         403,
       );
+    }
+  }
+
+  const notificationType =
+    body.notificationType ??
+    (body.data?.type === "like"
+      ? "likes"
+      : body.data?.type === "match"
+        ? "matches"
+        : body.data?.type === "message"
+          ? "messages"
+          : undefined);
+  const settingColumn = notificationType
+    ? {
+        likes: "notify_likes",
+        matches: "notify_matches",
+        messages: "notify_messages",
+        astrologyReports: "notify_astrology_reports",
+      }[notificationType]
+    : undefined;
+
+  if (settingColumn) {
+    const { data: settings, error: settingsError } = await adminClient
+      .from("user_settings")
+      .select(settingColumn)
+      .eq("user_id", recipientUserId)
+      .maybeSingle<Record<string, boolean>>();
+
+    if (settingsError) {
+      return jsonResponse({ error: settingsError.message }, 500);
+    }
+
+    if (settings?.[settingColumn] === false) {
+      return jsonResponse({ sent: 0, tickets: [], disabledBySettings: true });
     }
   }
 

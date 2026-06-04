@@ -154,6 +154,17 @@ serve(async (request) => {
     return jsonResponse({ like: existingLike, existing: true });
   }
 
+  const { data: allowed, error: creditError } = await authClient.rpc(
+    "spend_credit",
+    { p_reason: `Sent a like to ${targetProfileId}` },
+  );
+  if (creditError) {
+    return jsonResponse({ error: creditError.message }, 500);
+  }
+  if (!allowed) {
+    return jsonResponse({ error: "Credits needed" }, 402);
+  }
+
   const { data: like, error: likeError } = await adminClient
     .from("likes")
     .insert({
@@ -175,6 +186,23 @@ serve(async (request) => {
     .select("display_name")
     .eq("id", user.id)
     .maybeSingle<{ display_name: string | null }>();
+
+  await adminClient.from("activity_events").insert([
+    {
+      user_id: user.id,
+      event_type: "like",
+      title: "You sent a like",
+      description: openingMessage,
+      metadata: { likeId: like.id, targetProfileId },
+    },
+    {
+      user_id: targetProfileId,
+      event_type: "like",
+      title: `${senderProfile?.display_name?.trim() || "Someone"} liked your profile`,
+      description: openingMessage,
+      metadata: { likeId: like.id, fromUserId: user.id },
+    },
+  ]);
 
   try {
     await sendPushNotification(supabaseUrl, supabaseServiceRoleKey, {

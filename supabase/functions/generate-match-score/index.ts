@@ -369,6 +369,17 @@ serve(async (request) => {
     });
   }
 
+  const { data: allowed, error: creditError } = await authClient.rpc(
+    "spend_credit",
+    { p_reason: `Generated compatibility with ${targetProfileId}` },
+  );
+  if (creditError) {
+    return jsonResponse({ error: creditError.message }, 500);
+  }
+  if (!allowed) {
+    return jsonResponse({ error: "Credits needed" }, 402);
+  }
+
   const { data: profiles, error: profileError } = await adminClient
     .from("profiles")
     .select(
