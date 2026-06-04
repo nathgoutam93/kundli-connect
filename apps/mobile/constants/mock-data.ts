@@ -105,6 +105,7 @@ export type ChatPreview = {
   createdAt: string;
   updatedAt: string;
   participantId: string;
+  participantProfile?: DiscoverProfile;
   name: string;
   avatarUrl: string;
   lastMessage: string;

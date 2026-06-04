@@ -1,4 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import Constants from 'expo-constants';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 
 import { getSupabaseClient } from '@/lib/supabase';
 import type {
@@ -32,6 +35,11 @@ export type KundliChartImage = {
   chartId: string;
   path: string;
   signedUrl: string;
+};
+
+export type PushTokenRegistration = {
+  token: string;
+  platform: string;
 };
 
 type ProfileRow = {
@@ -869,10 +877,38 @@ export async function getChats(messageLimit = 15) {
     participantIds.length > 0
       ? await supabase
           .from('profiles')
-          .select('id, display_name, gender, date_of_birth, birth_place, location, bio, created_at')
+          .select(
+            [
+              'id',
+              'display_name',
+              'gender',
+              'gender_preferences',
+              'height',
+              'date_of_birth',
+              'birth_place',
+              'location',
+              'bio',
+              'family_plans',
+              'family_plans_visible_on_profile',
+              'workplace',
+              'workplace_visible_on_profile',
+              'job_role',
+              'job_role_visible_on_profile',
+              'school',
+              'school_visible_on_profile',
+              'education_level',
+              'education_level_visible_on_profile',
+              'religious_beliefs',
+              'drinking',
+              'drinking_visible_on_profile',
+              'smoking',
+              'smoking_visible_on_profile',
+              'created_at',
+            ].join(', ')
+          )
           .in('id', participantIds)
-          .returns<LikeProfileRow[]>()
-      : { data: [] as LikeProfileRow[], error: null };
+          .returns<ProfileRow[]>()
+      : { data: [] as ProfileRow[], error: null };
 
   if (profileError) {
     throw profileError;
@@ -931,6 +967,7 @@ export async function getChats(messageLimit = 15) {
       const participantId = like.from_user_id === user.id ? like.to_user_id : like.from_user_id;
       const profile = profilesById.get(participantId);
       const photoUrls = photosByUserId.get(participantId) ?? [];
+      const participantProfile = profile ? profileRowToDiscoverProfile(profile, photoUrls) : null;
       const compatibility = like.match_score_id ? scoresById.get(like.match_score_id) : null;
       const [messagePage, unreadResult] = await Promise.all([
         getChatMessagesPage(chat.id, user.id, { limit: messageLimit }),
@@ -951,6 +988,7 @@ export async function getChats(messageLimit = 15) {
         createdAt: chat.created_at,
         updatedAt: chat.updated_at,
         participantId,
+        ...(participantProfile ? { participantProfile } : {}),
         name: profile?.display_name?.trim() || 'KundaliKonnect Member',
         avatarUrl:
           photoUrls[0] ??
@@ -970,16 +1008,18 @@ export async function getChats(messageLimit = 15) {
 
 export async function sendMessage(chatId: string, text: string) {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase.rpc('send_chat_message', {
-    p_chat_id: chatId,
-    p_body: text,
+  const { data, error } = await supabase.functions.invoke<{ message: SentChatMessageResult }>('send-chat-message', {
+    body: {
+      chatId,
+      text,
+    },
   });
 
   if (error) {
     throw error;
   }
 
-  const message = data as SentChatMessageResult | null;
+  const message = data?.message ?? null;
   if (!message) {
     throw new Error('Message send did not return a message record.');
   }
@@ -1178,6 +1218,103 @@ export async function replyToLike(likeId: string, message: string) {
   }
 
   return data.chat;
+}
+
+function getExpoProjectId() {
+  return Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+}
+
+export async function registerCurrentUserPushToken(
+  options: { requestPermission?: boolean } = {}
+): Promise<PushTokenRegistration | null> {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    throw new Error('No authenticated Supabase user found.');
+  }
+
+  const existingPermission = await Notifications.getPermissionsAsync();
+  let isGranted = existingPermission.granted;
+  const requestPermission = options.requestPermission ?? true;
+
+  if (!isGranted && requestPermission) {
+    const requestedPermission = await Notifications.requestPermissionsAsync();
+    isGranted = requestedPermission.granted;
+  }
+
+  if (!isGranted) {
+    return null;
+  }
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Default',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FCAD00',
+    });
+  }
+
+  const projectId = getExpoProjectId();
+  const expoPushToken = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+  const token = expoPushToken.data;
+  const platform = Platform.OS;
+  const now = new Date().toISOString();
+
+  const { error } = await supabase.rpc('upsert_own_push_token', {
+    p_token: token,
+    p_platform: platform,
+    p_token_type: 'expo',
+    p_updated_at: now,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return { token, platform };
+}
+
+async function deleteCurrentUserPushTokens() {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    throw userError;
+  }
+
+  if (!user) {
+    return;
+  }
+
+  const existingPermission = await Notifications.getPermissionsAsync();
+
+  if (!existingPermission.granted) {
+    return;
+  }
+
+  const projectId = getExpoProjectId();
+  const expoPushToken = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+  const { error } = await supabase
+    .from('push_tokens')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('token', expoPushToken.data);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function getCurrentUserKundliSummary() {
@@ -1411,6 +1548,13 @@ export async function getCurrentSession() {
 
 export async function signOut() {
   const supabase = getSupabaseClient();
+
+  try {
+    await deleteCurrentUserPushTokens();
+  } catch (error) {
+    console.warn('Push token cleanup failed during sign out.', error);
+  }
+
   const { error } = await supabase.auth.signOut();
 
   if (error) {

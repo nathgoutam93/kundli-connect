@@ -61,6 +61,30 @@ function requiredEnv(name: string) {
   return value;
 }
 
+async function sendPushNotification(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  payload: {
+    recipientUserId: string;
+    title: string;
+    body: string;
+    data?: Record<string, unknown>;
+  },
+) {
+  const response = await fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
 serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -287,6 +311,23 @@ serve(async (request) => {
 
   if (matchScoreError) {
     return jsonResponse({ error: matchScoreError.message }, 500);
+  }
+
+  const { data: replierProfile } = await adminClient
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .maybeSingle<ProfileRow>();
+
+  try {
+    await sendPushNotification(supabaseUrl, supabaseServiceRoleKey, {
+      recipientUserId: like.from_user_id,
+      title: "It's a match",
+      body: `${replierProfile?.display_name?.trim() || "Someone"} replied to your like.`,
+      data: { type: "match", likeId: like.id, chatId: chat.id, fromUserId: user.id },
+    });
+  } catch (error) {
+    console.error("Failed to send match notification.", error);
   }
 
   const firstPhoto = photoRows?.[0]?.storage_path;

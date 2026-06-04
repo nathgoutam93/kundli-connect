@@ -1,15 +1,44 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
 import { useAppState } from '@/store/use-app-state';
 
 export default function NotificationsScreen() {
   const { completeOnboarding } = useAppState();
+  const [isRegistering, setIsRegistering] = useState(false);
 
   async function handleContinue() {
     await completeOnboarding();
     router.replace('/(tabs)');
+  }
+
+  async function handleEnableNotifications() {
+    if (isRegistering) {
+      return;
+    }
+
+    setIsRegistering(true);
+
+    try {
+      const registration = await registerCurrentUserPushToken({ requestPermission: true });
+
+      if (!registration) {
+        Alert.alert(
+          'Notifications are off',
+          'You can enable notifications later from your device settings.'
+        );
+      }
+
+      await handleContinue();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to enable notifications.';
+      Alert.alert('Unable to enable notifications', message);
+    } finally {
+      setIsRegistering(false);
+    }
   }
 
   return (
@@ -25,11 +54,14 @@ export default function NotificationsScreen() {
         <Text style={styles.title}>Your destiny might message anytime, Dont Miss It!</Text>
 
         <View style={styles.optionGroup}>
-          <Pressable style={styles.primaryOption} onPress={handleContinue}>
-            <Text style={styles.optionText}>Turn On Notifications</Text>
+          <Pressable
+            style={[styles.primaryOption, isRegistering && styles.disabledOption]}
+            disabled={isRegistering}
+            onPress={handleEnableNotifications}>
+            <Text style={styles.optionText}>{isRegistering ? 'Turning On...' : 'Turn On Notifications'}</Text>
           </Pressable>
 
-          <Pressable style={styles.secondaryOption} onPress={handleContinue}>
+          <Pressable style={styles.secondaryOption} disabled={isRegistering} onPress={handleContinue}>
             <Text style={styles.optionText}>Miss Out Notifications</Text>
           </Pressable>
         </View>
@@ -101,6 +133,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF8E8',
     justifyContent: 'center',
     paddingHorizontal: 17,
+  },
+  disabledOption: {
+    opacity: 0.65,
   },
   optionText: {
     fontSize: 19,

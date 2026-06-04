@@ -1,11 +1,66 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Notifications from 'expo-notifications';
 import { Redirect, Tabs } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
+import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
 import { useAppState } from '@/store/use-app-state';
 
 export default function MainTabsLayout() {
-  const { isHydrated, isAuthenticated, hasCompletedOnboarding } = useAppState();
+  const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile } = useAppState();
+  const hasCheckedNotificationPromptRef = useRef(false);
+
+  useEffect(() => {
+    if (!isHydrated || !isAuthenticated || !hasCompletedOnboarding || hasCheckedNotificationPromptRef.current) {
+      return;
+    }
+
+    hasCheckedNotificationPromptRef.current = true;
+
+    async function promptForNotificationsIfNeeded() {
+      const permissions = await Notifications.getPermissionsAsync();
+
+      if (permissions.granted || !permissions.canAskAgain) {
+        return;
+      }
+
+      const promptKey = `push-permission-prompted:${profile.id || 'current-user'}`;
+      const hasPrompted = await AsyncStorage.getItem(promptKey);
+
+      if (hasPrompted) {
+        return;
+      }
+
+      Alert.alert(
+        'Turn on notifications?',
+        'Get alerts for likes, matches, and new messages.',
+        [
+          {
+            text: 'Not Now',
+            style: 'cancel',
+            onPress: () => {
+              void AsyncStorage.setItem(promptKey, 'true');
+            },
+          },
+          {
+            text: 'Turn On',
+            onPress: () => {
+              void AsyncStorage.setItem(promptKey, 'true');
+              void registerCurrentUserPushToken({ requestPermission: true }).catch((error) => {
+                console.warn('Push token registration failed from returning-user prompt.', error);
+              });
+            },
+          },
+        ]
+      );
+    }
+
+    promptForNotificationsIfNeeded().catch((error) => {
+      console.warn('Returning-user notification prompt failed.', error);
+    });
+  }, [hasCompletedOnboarding, isAuthenticated, isHydrated, profile.id]);
 
   if (!isHydrated) {
     return (

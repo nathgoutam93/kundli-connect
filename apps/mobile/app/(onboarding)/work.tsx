@@ -71,7 +71,7 @@ export default function WorkScreen() {
     return (
         <KeyboardAvoidingView
             style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <Pressable style={styles.backButton} onPress={() => router.back()}>
                 <Ionicons name="chevron-back" size={27} color="#111111" />
             </Pressable>

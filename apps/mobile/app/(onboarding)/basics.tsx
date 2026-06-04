@@ -45,7 +45,7 @@ export default function BasicsScreen() {
         <SafeAreaView style={styles.container} edges={['top']}>
             <KeyboardAvoidingView
                 style={styles.keyboardContainer}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
 
                 <ScrollView
                     style={styles.content}

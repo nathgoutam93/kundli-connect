@@ -93,8 +93,11 @@ create table public.push_tokens (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   token text not null unique,
+  token_type text not null default 'expo',
   platform text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (token_type in ('expo'))
 );
 
 create index profiles_onboarding_completed_idx on public.profiles(onboarding_completed);
@@ -102,6 +105,7 @@ create index profile_photos_user_id_sort_order_idx on public.profile_photos(user
 create index likes_to_user_id_status_idx on public.likes(to_user_id, status);
 create index messages_chat_id_created_at_idx on public.messages(chat_id, created_at);
 create index credit_transactions_user_id_created_at_idx on public.credit_transactions(user_id, created_at desc);
+create index push_tokens_user_id_idx on public.push_tokens(user_id);
 
 alter table public.profiles enable row level security;
 alter table public.profile_photos enable row level security;
@@ -225,3 +229,57 @@ create policy "Users can manage own push tokens"
 on public.push_tokens for all
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
+
+create or replace function public.upsert_own_push_token(
+  p_token text,
+  p_platform text default null,
+  p_token_type text default 'expo',
+  p_updated_at timestamptz default now()
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_user_id uuid := auth.uid();
+begin
+  if current_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if p_token is null or btrim(p_token) = '' then
+    raise exception 'Push token is required';
+  end if;
+
+  if p_token_type <> 'expo' then
+    raise exception 'Unsupported push token type';
+  end if;
+
+  delete from public.push_tokens
+  where token = p_token
+    and user_id <> current_user_id;
+
+  insert into public.push_tokens (
+    user_id,
+    token,
+    token_type,
+    platform,
+    updated_at
+  )
+  values (
+    current_user_id,
+    p_token,
+    p_token_type,
+    p_platform,
+    p_updated_at
+  )
+  on conflict (token) do update
+  set user_id = excluded.user_id,
+      token_type = excluded.token_type,
+      platform = excluded.platform,
+      updated_at = excluded.updated_at;
+end;
+$$;
+
+grant execute on function public.upsert_own_push_token(text, text, text, timestamptz) to authenticated;

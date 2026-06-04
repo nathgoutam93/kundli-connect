@@ -37,3 +37,5 @@ enabled = true
 policy = "oneshot"
 inspector_port = 8083
 
+[functions.send-push-notification]
+verify_jwt = false

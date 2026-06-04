@@ -12,12 +12,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import MapView, { Marker, type MapPressEvent, type Region } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, type MapPressEvent, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAppState } from '@/store/use-app-state';
 
 const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? googlePlacesApiKey;
 
 const DEFAULT_BIRTH_COORDINATE = {
   latitude: 28.6139,
@@ -211,6 +212,7 @@ export default function BirthLocationScreen() {
       isInRange(birthTimezone, -12, 14),
     [birthPlace, birthTimezone, selectedCoordinate.latitude, selectedCoordinate.longitude]
   );
+  const canRenderMap = Platform.OS !== 'android' || Boolean(googleMapsApiKey);
 
   function updateSelectedCoordinate(coordinate: Coordinate) {
     setSelectedCoordinate(coordinate);
@@ -331,7 +333,7 @@ export default function BirthLocationScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={27} color="#111111" />
         </Pressable>
@@ -378,34 +380,44 @@ export default function BirthLocationScreen() {
               <Text style={styles.heading}>Pick On Map</Text>
               <Text style={styles.subheading}>Tap the map or drag the pin to your birth location.</Text>
               <View style={styles.mapShell}>
-                <MapView
-                  style={styles.map}
-                  region={mapRegion}
-                  onRegionChangeComplete={setMapRegion}
-                  zoomEnabled
-                  scrollEnabled
-                  onPress={handleMapPress}>
-                  <Marker
-                    coordinate={selectedCoordinate}
-                    draggable
-                    title={birthPlace.trim() || 'Birth location'}
-                    onDragEnd={(event) => updateSelectedCoordinate(event.nativeEvent.coordinate)}
-                  />
-                </MapView>
-                <View style={styles.mapControls}>
-                  <Pressable
-                    style={styles.mapControlButton}
-                    accessibilityLabel="Zoom out map"
-                    onPress={() => zoomMap(2)}>
-                    <Ionicons name="remove" size={21} color="#2A2230" />
-                  </Pressable>
-                  <Pressable
-                    style={styles.mapControlButton}
-                    accessibilityLabel="Zoom in map"
-                    onPress={() => zoomMap(0.5)}>
-                    <Ionicons name="add" size={21} color="#2A2230" />
-                  </Pressable>
-                </View>
+                {canRenderMap ? (
+                  <>
+                    <MapView
+                      style={styles.map}
+                      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                      region={mapRegion}
+                      onRegionChangeComplete={setMapRegion}
+                      zoomEnabled
+                      scrollEnabled
+                      onPress={handleMapPress}>
+                      <Marker
+                        coordinate={selectedCoordinate}
+                        draggable
+                        title={birthPlace.trim() || 'Birth location'}
+                        onDragEnd={(event) => updateSelectedCoordinate(event.nativeEvent.coordinate)}
+                      />
+                    </MapView>
+                    <View style={styles.mapControls}>
+                      <Pressable
+                        style={styles.mapControlButton}
+                        accessibilityLabel="Zoom out map"
+                        onPress={() => zoomMap(2)}>
+                        <Ionicons name="remove" size={21} color="#2A2230" />
+                      </Pressable>
+                      <Pressable
+                        style={styles.mapControlButton}
+                        accessibilityLabel="Zoom in map"
+                        onPress={() => zoomMap(0.5)}>
+                        <Ionicons name="add" size={21} color="#2A2230" />
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.mapFallback}>
+                    <Ionicons name="map-outline" size={28} color="#6C5A30" />
+                    <Text style={styles.mapFallbackText}>Map unavailable in this build.</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.coordinateSummary}>
                 <Text style={styles.coordinateSummaryText}>
@@ -558,6 +570,20 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+  },
+  mapFallbackText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: '#6C5A30',
+    textAlign: 'center',
   },
   mapControls: {
     position: 'absolute',

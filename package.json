@@ -6,20 +6,30 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
   "scripts": {
     "mobile:start": "npm --prefix apps/mobile start",
     "mobile:android": "npm --prefix apps/mobile run android",
+    "mobile:android:release": "npm --prefix apps/mobile run android:release",
+    "mobile:android:assemble-release": "npm --prefix apps/mobile run android:assemble-release",
     "mobile:ios": "npm --prefix apps/mobile run ios",
     "mobile:web": "npm --prefix apps/mobile run web",
     "mobile:lint": "npm --prefix apps/mobile run lint",
     "supabase:link": "set -a; . ./.env; set +a; supabase link --project-ref \"$SUPABASE_PROJECT_REF\"",
     "supabase:db:push": "supabase db push",
-    "supabase:functions:deploy": "supabase functions deploy generate-kundli && supabase functions deploy generate-match-score && supabase functions deploy create-like && supabase functions deploy reply-to-like && supabase functions deploy send-push-notification"
+    "supabase:functions:deploy": "supabase functions deploy generate-kundli && supabase functions deploy generate-match-score && supabase functions deploy create-like && supabase functions deploy reply-to-like && supabase functions deploy send-push-notification --no-verify-jwt && supabase functions deploy send-chat-message"
   },
   "devDependencies": {
     "eslint": "^9.39.4",
     "eslint-config-expo": "^56.0.4",
     "supabase": "^2.103.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   }
 }

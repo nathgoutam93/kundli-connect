@@ -279,7 +279,7 @@ function KundaliScorePreview({
 
     return (
         <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={[styles.scoreScreen, { paddingTop: Math.max(insets.top + 18, 40) }]}>
             <Pressable
                 accessibilityLabel="Close Kundali score"
@@ -292,6 +292,8 @@ function KundaliScorePreview({
             <ScrollView
                 style={styles.scoreScroll}
                 contentContainerStyle={styles.scoreContent}
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}>
                 <View style={styles.modalTabs}>
                     <ScoreModalTabButton activeTab={activeTab} label="Score" tab="score" onPress={setActiveTab} />
@@ -691,7 +693,7 @@ const styles = StyleSheet.create({
     scoreCloseButton: {
         position: 'absolute',
         right: 18,
-        top: 18,
+        top: 40,
         zIndex: 2,
         width: 42,
         height: 42,

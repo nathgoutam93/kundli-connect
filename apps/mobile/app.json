@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "KundaliKonnect",
-    "slug": "KundaliKonnect",
+    "slug": "kundliconnect",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -16,6 +16,7 @@
     },
     "android": {
       "permissions": [
+        "POST_NOTIFICATIONS",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
       ],
@@ -27,7 +28,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.nathgoutam93.KundaliKonnect"
+      "package": "com.nathgoutam93.KundaliKonnect",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -35,6 +37,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#FCAD00"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -51,6 +59,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8d0b73d3-6d31-47b2-9d76-f46b8be0bf53"
+      }
+    },
+    "owner": "nathgoutam93"
   }
 }

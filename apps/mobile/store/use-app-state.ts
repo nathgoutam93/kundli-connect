@@ -48,6 +48,7 @@ import {
   getCurrentUserProfile,
   requestPhoneOtp,
   markChatRead as markChatReadInSupabase,
+  registerCurrentUserPushToken,
   sendMessage as sendChatMessageInSupabase,
   signOut,
   deleteCurrentUserProfilePhoto,
@@ -200,6 +201,10 @@ export const useAppState = create<AppState>()(
             getChats(15),
           ]);
           set({ discoverProfiles, likes, chats });
+
+          registerCurrentUserPushToken({ requestPermission: false }).catch((error) => {
+            console.warn('Push token refresh failed during session hydration.', error);
+          });
         });
       },
       requestOtp: async (phoneNumber) => {
@@ -236,6 +241,10 @@ export const useAppState = create<AppState>()(
               updatedAt: new Date().toISOString(),
             },
           }));
+
+          registerCurrentUserPushToken({ requestPermission: false }).catch((error) => {
+            console.warn('Push token refresh failed after OTP login.', error);
+          });
         });
       },
       completeGoogleLogin: async () => {

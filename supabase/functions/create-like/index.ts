@@ -29,6 +29,30 @@ function orderedPair(firstUserId: string, secondUserId: string) {
     : { userAId: secondUserId, userBId: firstUserId };
 }
 
+async function sendPushNotification(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  payload: {
+    recipientUserId: string;
+    title: string;
+    body: string;
+    data?: Record<string, unknown>;
+  },
+) {
+  const response = await fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
 serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -144,6 +168,23 @@ serve(async (request) => {
 
   if (likeError) {
     return jsonResponse({ error: likeError.message }, 500);
+  }
+
+  const { data: senderProfile } = await adminClient
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .maybeSingle<{ display_name: string | null }>();
+
+  try {
+    await sendPushNotification(supabaseUrl, supabaseServiceRoleKey, {
+      recipientUserId: targetProfileId,
+      title: "New like",
+      body: `${senderProfile?.display_name?.trim() || "Someone"} sent you a like.`,
+      data: { type: "like", likeId: like.id, fromUserId: user.id },
+    });
+  } catch (error) {
+    console.error("Failed to send like notification.", error);
   }
 
   return jsonResponse({ like });

@@ -72,19 +72,20 @@ function buildMatchProfile(
     const discoverProfile = discoverProfiles.find(
         (profile) => profile.id === chat?.participantId || profile.name === chat?.name
     );
+    const participantProfile = chat?.participantProfile ?? discoverProfile;
     const like = likes.find((item) => item.fromProfileId === chat?.participantId || item.fromName === chat?.name);
     const chatCompatibility = chat?.compatibility;
 
-    if (discoverProfile) {
+    if (participantProfile) {
         return {
-            name: discoverProfile.name,
-            age: discoverProfile.age,
-            location: discoverProfile.location,
-            bio: discoverProfile.bio,
-            photos: discoverProfile.photos,
-            details: discoverProfile.details,
-            compatibilityScore: chatCompatibility?.overallScore ?? discoverProfile.compatibility.overallScore,
-            compatibility: chatCompatibility ?? discoverProfile.compatibility,
+            name: participantProfile.name,
+            age: participantProfile.age,
+            location: participantProfile.location,
+            bio: participantProfile.bio,
+            photos: participantProfile.photos,
+            details: participantProfile.details,
+            compatibilityScore: chatCompatibility?.overallScore ?? participantProfile.compatibility.overallScore,
+            compatibility: chatCompatibility ?? participantProfile.compatibility,
         };
     }
 
@@ -170,10 +171,10 @@ export default function ChatThreadScreen() {
     );
 
     useEffect(() => {
-        if (chatId && !chat) {
+        if (chatId) {
             void refreshChats();
         }
-    }, [chat, chatId, refreshChats]);
+    }, [chatId, refreshChats]);
 
     useEffect(() => {
         if (chatId) {
@@ -195,7 +196,7 @@ export default function ChatThreadScreen() {
         <>
             <Stack.Screen options={{ headerShown: false }} />
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.screen}>
                 <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 20) }]}>
                     <Pressable accessibilityLabel="Back" hitSlop={12} onPress={() => router.back()}>
@@ -350,7 +351,7 @@ function ChatTab({
 
 function ScoreTab({ profile }: { profile: MatchProfile }) {
     const rows = buildScoreRows(profile);
-    const summary = profile.compatibility.raw.conclusion.match_report ??
+    const summary = profile.compatibility?.raw?.conclusion?.match_report ??
         profile.compatibility?.summary ??
         'Your charts show a balanced opening for conversation, practical timing, and steady emotional rhythm.';
     const yogas = profile.compatibility?.yogas ?? ['Hamsa', 'Dhan'];

@@ -295,7 +295,7 @@ function RecommendationCard({
                 visible={isMessageOpen}
                 onRequestClose={() => setIsMessageOpen(false)}>
                 <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     style={styles.modalLayer}>
                     <Pressable style={styles.modalScrim} onPress={() => setIsMessageOpen(false)} />
                     <View style={[styles.messageSheet, { paddingBottom: Math.max(insets.bottom + 18, 30) }]}>
