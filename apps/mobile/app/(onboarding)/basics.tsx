@@ -13,12 +13,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function BasicsScreen() {
-    const { isServiceBusy, profile, serviceError, updateProfile } = useAppState();
+    const { isServiceBusy, profile, serviceError, updateProfile } = useAppData();
     const [name, setName] = useState(profile.name === 'New User' ? '' : profile.name);
     const [email, setEmail] = useState(profile.email);
 

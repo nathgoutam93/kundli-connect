@@ -93,6 +93,12 @@ type KundliRow = {
   generated_at: string;
 };
 
+async function getSessionUser() {
+  const { data, error } = await getSupabaseClient().auth.getSession();
+  if (error) throw error;
+  return data.session?.user ?? null;
+}
+
 type PendingLikeRow = {
   id: string;
   from_user_id: string;
@@ -100,18 +106,6 @@ type PendingLikeRow = {
   match_score_id: string | null;
   created_at: string;
 };
-
-type LikeProfileRow = Pick<
-  ProfileRow,
-  | 'id'
-  | 'display_name'
-  | 'gender'
-  | 'date_of_birth'
-  | 'birth_place'
-  | 'location'
-  | 'bio'
-  | 'created_at'
->;
 
 type MatchScoreSummaryRow = {
   id: string;
@@ -128,6 +122,7 @@ type ChatRow = {
 type ChatParticipantRow = {
   chat_id: string;
   last_read_at: string | null;
+  hidden: boolean;
 };
 
 type MessageRow = {
@@ -397,14 +392,7 @@ export async function verifyPhoneOtp(phone: string, token: string) {
 
 export async function ensureCurrentUserProfile() {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     throw new Error('No authenticated Supabase user found.');
@@ -428,20 +416,11 @@ export async function ensureCurrentUserProfile() {
 
 export async function getCurrentUserProfile() {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return null;
   }
-
-  await ensureCurrentUserProfile();
 
   const { data, error } = await supabase
     .from('profiles')
@@ -514,33 +493,30 @@ export async function getCurrentUserProfile() {
 
 export async function getDiscoverProfiles() {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return [];
   }
 
-  const { data: matchedLikeRows, error: matchedLikeError } = await supabase
+  const [{ data: likeRows, error: likeError }, { data: passRows, error: passError }] = await Promise.all([
+    supabase
     .from('likes')
     .select('from_user_id, to_user_id')
-    .eq('status', 'matched')
     .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`)
-    .returns<MatchedLikeParticipantRow[]>();
+    .returns<MatchedLikeParticipantRow[]>(),
+    supabase.from('discovery_passes').select('passed_user_id').eq('user_id', user.id),
+  ]);
 
-  if (matchedLikeError) {
-    throw matchedLikeError;
-  }
+  if (likeError) throw likeError;
+  if (passError) throw passError;
 
-  const matchedProfileIds = [
+  const excludedProfileIds = [
     ...new Set(
-      (matchedLikeRows ?? []).map((like) => (like.from_user_id === user.id ? like.to_user_id : like.from_user_id))
+      [
+        ...(likeRows ?? []).map((like) => (like.from_user_id === user.id ? like.to_user_id : like.from_user_id)),
+        ...(passRows ?? []).map((pass) => pass.passed_user_id as string),
+      ]
     ),
   ];
 
@@ -580,8 +556,8 @@ export async function getDiscoverProfiles() {
     .eq('onboarding_completed', true)
     .neq('id', user.id);
 
-  if (matchedProfileIds.length > 0) {
-    profileQuery = profileQuery.not('id', 'in', `(${matchedProfileIds.join(',')})`);
+  if (excludedProfileIds.length > 0) {
+    profileQuery = profileQuery.not('id', 'in', `(${excludedProfileIds.join(',')})`);
   }
 
   const { data: profileRows, error } = await profileQuery
@@ -624,14 +600,7 @@ export async function getDiscoverProfiles() {
 
 export async function getPendingIncomingLikes() {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return [];
@@ -657,9 +626,37 @@ export async function getPendingIncomingLikes() {
   const fromUserIds = [...new Set(likes.map((like) => like.from_user_id))];
   const { data: profileRows, error: profileError } = await supabase
     .from('profiles')
-    .select('id, display_name, gender, date_of_birth, birth_place, location, bio, created_at')
+    .select(
+      [
+        'id',
+        'display_name',
+        'gender',
+        'gender_preferences',
+        'height',
+        'date_of_birth',
+        'birth_place',
+        'location',
+        'bio',
+        'family_plans',
+        'family_plans_visible_on_profile',
+        'workplace',
+        'workplace_visible_on_profile',
+        'job_role',
+        'job_role_visible_on_profile',
+        'school',
+        'school_visible_on_profile',
+        'education_level',
+        'education_level_visible_on_profile',
+        'religious_beliefs',
+        'drinking',
+        'drinking_visible_on_profile',
+        'smoking',
+        'smoking_visible_on_profile',
+        'created_at',
+      ].join(', ')
+    )
     .in('id', fromUserIds)
-    .returns<LikeProfileRow[]>();
+    .returns<ProfileRow[]>();
 
   if (profileError) {
     throw profileError;
@@ -715,11 +712,15 @@ export async function getPendingIncomingLikes() {
         photoUrls[0] ??
         'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85';
       const compatibility = like.match_score_id ? scoresById.get(like.match_score_id) : null;
+      const fromDiscoverProfile = profileRowToDiscoverProfile(fromProfile, photoUrls);
 
       return {
         id: like.id,
         createdAt: like.created_at,
         fromProfileId: like.from_user_id,
+        ...(fromDiscoverProfile
+          ? { fromProfile: { ...fromDiscoverProfile, compatibility: compatibility ?? fromDiscoverProfile.compatibility } }
+          : {}),
         fromName: fromProfile.display_name?.trim() || 'KundaliKonnect Member',
         age: calculateAge(fromProfile.date_of_birth),
         location: fromProfile.location || fromProfile.birth_place || 'India',
@@ -783,15 +784,7 @@ export async function getChatMessages(
   chatId: string,
   options?: { before?: string; limit?: number }
 ) {
-  const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return { messages: [], hasMoreMessages: false };
@@ -802,14 +795,7 @@ export async function getChatMessages(
 
 export async function getChats(messageLimit = 15) {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return [];
@@ -817,7 +803,7 @@ export async function getChats(messageLimit = 15) {
 
   const { data: participantRows, error: participantError } = await supabase
     .from('chat_participants')
-    .select('chat_id, last_read_at')
+    .select('chat_id, last_read_at, hidden')
     .eq('user_id', user.id)
     .returns<ChatParticipantRow[]>();
 
@@ -842,6 +828,7 @@ export async function getChats(messageLimit = 15) {
   }
 
   const chats = chatRows ?? [];
+  const participationByChatId = new Map((participantRows ?? []).map((participant) => [participant.chat_id, participant]));
   const likeIds = [...new Set(chats.map((chat) => chat.like_id).filter((id): id is string => Boolean(id)))];
 
   const { data: likeRows, error: likeError } =
@@ -873,9 +860,18 @@ export async function getChats(messageLimit = 15) {
     ),
   ];
 
-  const { data: profileRows, error: profileError } =
+  const matchScoreIds = [
+    ...new Set(
+      (likeRows ?? []).map((like) => like.match_score_id).filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const [
+    { data: profileRows, error: profileError },
+    { data: photoRows, error: photoError },
+    { data: matchScoreRows, error: matchScoreError },
+  ] = await Promise.all([
     participantIds.length > 0
-      ? await supabase
+      ? supabase
           .from('profiles')
           .select(
             [
@@ -908,43 +904,27 @@ export async function getChats(messageLimit = 15) {
           )
           .in('id', participantIds)
           .returns<ProfileRow[]>()
-      : { data: [] as ProfileRow[], error: null };
-
-  if (profileError) {
-    throw profileError;
-  }
-
-  const { data: photoRows, error: photoError } =
+      : Promise.resolve({ data: [] as ProfileRow[], error: null }),
     participantIds.length > 0
-      ? await supabase
+      ? supabase
           .from('profile_photos')
           .select('user_id, storage_path, sort_order')
           .in('user_id', participantIds)
           .order('sort_order', { ascending: true })
           .returns<ProfilePhotoRow[]>()
-      : { data: [] as ProfilePhotoRow[], error: null };
-
-  if (photoError) {
-    throw photoError;
-  }
-
-  const matchScoreIds = [
-    ...new Set(
-      (likeRows ?? []).map((like) => like.match_score_id).filter((id): id is string => Boolean(id))
-    ),
-  ];
-  const { data: matchScoreRows, error: matchScoreError } =
+      : Promise.resolve({ data: [] as ProfilePhotoRow[], error: null }),
     matchScoreIds.length > 0
-      ? await supabase
+      ? supabase
           .from('match_scores')
           .select('id, compatibility_report')
           .in('id', matchScoreIds)
           .returns<MatchScoreSummaryRow[]>()
-      : { data: [] as MatchScoreSummaryRow[], error: null };
+      : Promise.resolve({ data: [] as MatchScoreSummaryRow[], error: null }),
+  ]);
 
-  if (matchScoreError) {
-    throw matchScoreError;
-  }
+  if (profileError) throw profileError;
+  if (photoError) throw photoError;
+  if (matchScoreError) throw matchScoreError;
 
   const profilesById = new Map((profileRows ?? []).map((profile) => [profile.id, profile]));
   const scoresById = new Map((matchScoreRows ?? []).map((score) => [score.id, score.compatibility_report]));
@@ -995,6 +975,7 @@ export async function getChats(messageLimit = 15) {
           'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85',
         lastMessage: messagePage.messages.at(-1)?.text ?? 'Start the conversation',
         unreadCount: unreadResult.count ?? 0,
+        hidden: participationByChatId.get(chat.id)?.hidden ?? false,
         compatibilityScore: compatibility?.overallScore ?? createCompatibility(participantId).overallScore,
         ...(compatibility ? { compatibility } : {}),
         hasMoreMessages: messagePage.hasMoreMessages,

@@ -4,7 +4,7 @@ import { type ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -18,7 +18,7 @@ export default function SettingsScreen() {
     subscription,
     updateNotifications,
     updatePrivacy,
-  } = useAppState();
+  } = useAppData();
 
   async function handleLogout() {
     await logout();
@@ -26,7 +26,7 @@ export default function SettingsScreen() {
   }
 
   function confirmLogout() {
-    Alert.alert('Log out?', 'This mock session can be restored only from local state.', [
+    Alert.alert('Log out?', 'You will need to sign in again to continue.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Log out', style: 'destructive', onPress: handleLogout },
     ]);
@@ -55,7 +55,7 @@ export default function SettingsScreen() {
         </View>
         <View style={styles.accountCopy}>
           <Text style={styles.name}>{profile.name}</Text>
-          <Text style={styles.meta}>{profile.phoneNumber || profile.email || 'Local mock account'}</Text>
+          <Text style={styles.meta}>{profile.phoneNumber || profile.email || 'KundaliKonnect account'}</Text>
         </View>
       </View>
 

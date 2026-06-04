@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const MIN_BIRTH_YEAR = 1900;
 const FALLBACK_BIRTH_YEAR = 2000;
@@ -178,7 +178,7 @@ function getInitialTimeParts(value: string) {
 }
 
 export default function KundliDetailsScreen() {
-    const { profile, updateProfile } = useAppState();
+    const { profile, updateProfile } = useAppData();
     const [dobParts, setDobParts] = useState(() => getInitialDateParts(profile.dateOfBirth));
     const [timeParts, setTimeParts] = useState(() => getInitialTimeParts(profile.timeOfBirth));
     const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);

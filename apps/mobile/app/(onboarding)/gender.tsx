@@ -3,12 +3,12 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Non - Binary'];
 
 export default function GenderScreen() {
-  const { profile, updateProfile } = useAppState();
+  const { profile, updateProfile } = useAppData();
   const [selectedGender, setSelectedGender] = useState(profile.gender || '');
   const isValid = Boolean(selectedGender);
 

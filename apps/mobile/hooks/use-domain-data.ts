@@ -1,0 +1,233 @@
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { DEFAULT_PROFILE } from '@/constants/mock-data';
+import { type ChatPreview, type LikeItem } from '@/constants/mock-data';
+import { queryKeys } from '@/lib/query-keys';
+import { useAuth } from '@/providers/auth-provider';
+import {
+  activateSubscription,
+  dismissLike,
+  getActivity,
+  getCreditAccount,
+  getSettings,
+  getSentLikes,
+  getSubscription,
+  getSubscriptionPlans,
+  passProfile,
+  purchaseCredits,
+  restoreSubscription,
+  spendCredit,
+  updateSettings,
+} from '@/services/supabase-domain-service';
+import {
+  applyProfileRow,
+  createLike,
+  deleteCurrentUserProfilePhoto,
+  generateCurrentUserKundli,
+  generateMatchScore,
+  getChats,
+  getChatMessages,
+  getCurrentUserKundliSummary,
+  getCurrentUserProfile,
+  getDiscoverProfiles,
+  getPendingIncomingLikes,
+  markChatRead,
+  replyToLike,
+  sendMessage,
+  updateCurrentUserProfile,
+  updateCurrentUserProfilePhotoOrder,
+  uploadCurrentUserProfilePhoto,
+} from '@/services/supabase-auth-service';
+
+const profileStaleTime = 5 * 60 * 1000;
+
+export function useProfileQuery() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: queryKeys.profile(user?.id ?? 'anonymous'),
+    queryFn: async () => {
+      const row = await getCurrentUserProfile();
+      return row
+        ? Object.assign(applyProfileRow({ ...DEFAULT_PROFILE, id: user!.id }, row), {
+            _onboardingCompleted: row.onboarding_completed,
+          })
+        : Object.assign({ ...DEFAULT_PROFILE, id: user!.id }, { _onboardingCompleted: false });
+    },
+    enabled: Boolean(user),
+    staleTime: profileStaleTime,
+  });
+}
+
+export function useKundliQuery() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: queryKeys.kundli(user?.id ?? 'anonymous'),
+    queryFn: getCurrentUserKundliSummary,
+    enabled: Boolean(user),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
+
+export function useDiscoverProfilesQuery() {
+  const { user } = useAuth();
+  return useQuery({ queryKey: queryKeys.discoverProfiles(user?.id ?? 'anonymous'), queryFn: getDiscoverProfiles, enabled: Boolean(user) });
+}
+
+export function useIncomingLikesQuery() {
+  const { user } = useAuth();
+  return useQuery({ queryKey: queryKeys.incomingLikes(user?.id ?? 'anonymous'), queryFn: getPendingIncomingLikes, enabled: Boolean(user) });
+}
+
+export function useSentLikesQuery() {
+  const { user } = useAuth();
+  return useQuery({ queryKey: queryKeys.sentLikes(user?.id ?? 'anonymous'), queryFn: getSentLikes, enabled: Boolean(user) });
+}
+
+export function useChatsQuery() {
+  const { user } = useAuth();
+  return useQuery({ queryKey: queryKeys.chatPreviews(user?.id ?? 'anonymous'), queryFn: () => getChats(1), enabled: Boolean(user) });
+}
+
+export function useChatMessagesInfiniteQuery(chatId: string) {
+  const { user } = useAuth();
+  return useInfiniteQuery({
+    queryKey: queryKeys.chatMessages(user?.id ?? 'anonymous', chatId),
+    queryFn: ({ pageParam }) => getChatMessages(chatId, { before: pageParam, limit: 30 }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) =>
+      page.hasMoreMessages ? page.messages[0]?.createdAt : undefined,
+    enabled: Boolean(user && chatId),
+  });
+}
+
+export function useAccountQueries() {
+  const { user } = useAuth();
+  const id = user?.id ?? 'anonymous';
+  return {
+    activity: useQuery({ queryKey: queryKeys.activity(id), queryFn: getActivity, enabled: Boolean(user) }),
+    credits: useQuery({ queryKey: queryKeys.creditAccount(id), queryFn: getCreditAccount, enabled: Boolean(user) }),
+    settings: useQuery({ queryKey: queryKeys.settings(id), queryFn: getSettings, enabled: Boolean(user), staleTime: profileStaleTime }),
+    subscription: useQuery({ queryKey: queryKeys.subscription(id), queryFn: getSubscription, enabled: Boolean(user), staleTime: profileStaleTime }),
+    plans: useQuery({ queryKey: queryKeys.subscriptionPlans, queryFn: getSubscriptionPlans, enabled: Boolean(user), staleTime: profileStaleTime }),
+  };
+}
+
+export function useDomainMutations() {
+  const { user } = useAuth();
+  const client = useQueryClient();
+  const id = user?.id ?? 'anonymous';
+  const invalidate = (...keys: readonly (readonly unknown[])[]) =>
+    Promise.all(keys.map((queryKey) => client.invalidateQueries({ queryKey })));
+  return {
+    updateProfile: useMutation({
+      mutationFn: ({ profile, onboardingCompleted }: { profile: typeof DEFAULT_PROFILE; onboardingCompleted?: boolean }) =>
+        updateCurrentUserProfile(profile, { onboardingCompleted }),
+      onSuccess: () => invalidate(queryKeys.profile(id), queryKeys.discoverProfiles(id)),
+    }),
+    generateKundli: useMutation({
+      mutationFn: generateCurrentUserKundli,
+      onSuccess: () => invalidate(queryKeys.profile(id)),
+    }),
+    generateCompatibility: useMutation({ mutationFn: generateMatchScore }),
+    passProfile: useMutation({
+      mutationFn: passProfile,
+      onMutate: async (profileId) => {
+        await client.cancelQueries({ queryKey: queryKeys.discoverProfiles(id) });
+        const previous = client.getQueryData(queryKeys.discoverProfiles(id));
+        client.setQueryData(queryKeys.discoverProfiles(id), (profiles: { id: string }[] = []) => profiles.filter((p) => p.id !== profileId));
+        return { previous };
+      },
+      onError: (_error, _id, context) => client.setQueryData(queryKeys.discoverProfiles(id), context?.previous),
+      onSettled: () => invalidate(queryKeys.discoverProfiles(id)),
+    }),
+    sendLike: useMutation({
+      mutationFn: ({ profileId, message }: { profileId: string; message: string }) => createLike(profileId, message),
+      onSuccess: () => invalidate(queryKeys.discoverProfiles(id), queryKeys.sentLikes(id), queryKeys.creditAccount(id), queryKeys.activity(id)),
+    }),
+    replyToLike: useMutation({
+      mutationFn: ({ likeId, message }: { likeId: string; message: string }) => replyToLike(likeId, message),
+      onSuccess: () => invalidate(queryKeys.incomingLikes(id), queryKeys.chatPreviews(id), queryKeys.activity(id)),
+    }),
+    dismissLike: useMutation({
+      mutationFn: dismissLike,
+      onMutate: async (likeId) => {
+        await client.cancelQueries({ queryKey: queryKeys.incomingLikes(id) });
+        const previous = client.getQueryData<LikeItem[]>(queryKeys.incomingLikes(id));
+        client.setQueryData<LikeItem[]>(queryKeys.incomingLikes(id), (likes = []) => likes.filter((like) => like.id !== likeId));
+        return { previous };
+      },
+      onError: (_error, _likeId, context) => client.setQueryData(queryKeys.incomingLikes(id), context?.previous),
+      onSettled: () => invalidate(queryKeys.incomingLikes(id)),
+    }),
+    sendMessage: useMutation({
+      mutationFn: ({ chatId, text }: { chatId: string; text: string }) => sendMessage(chatId, text),
+      onMutate: async ({ chatId, text }) => {
+        await client.cancelQueries({ queryKey: queryKeys.chatPreviews(id) });
+        const previous = client.getQueryData<ChatPreview[]>(queryKeys.chatPreviews(id));
+        client.setQueryData<ChatPreview[]>(queryKeys.chatPreviews(id), (chats = []) =>
+          chats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  lastMessage: text,
+                  updatedAt: new Date().toISOString(),
+                  messages: [...chat.messages, { id: `pending-${Date.now()}`, createdAt: new Date().toISOString(), senderId: 'me', text, status: 'sent' }],
+                }
+              : chat
+          )
+        );
+        return { previous };
+      },
+      onError: (_error, _variables, context) => client.setQueryData(queryKeys.chatPreviews(id), context?.previous),
+      onSettled: (_data, _error, variables) =>
+        invalidate(queryKeys.chatPreviews(id), queryKeys.chatMessages(id, variables.chatId)),
+    }),
+    markRead: useMutation({
+      mutationFn: markChatRead,
+      onMutate: async (chatId) => {
+        await client.cancelQueries({ queryKey: queryKeys.chatPreviews(id) });
+        const previous = client.getQueryData<ChatPreview[]>(queryKeys.chatPreviews(id));
+        client.setQueryData<ChatPreview[]>(queryKeys.chatPreviews(id), (chats = []) =>
+          chats.map((chat) => (chat.id === chatId ? { ...chat, unreadCount: 0 } : chat))
+        );
+        return { previous };
+      },
+      onError: (_error, _chatId, context) => client.setQueryData(queryKeys.chatPreviews(id), context?.previous),
+    }),
+    spendCredit: useMutation({
+      mutationFn: spendCredit,
+      onSuccess: () => invalidate(queryKeys.creditAccount(id), queryKeys.activity(id)),
+    }),
+    purchaseCredits: useMutation({
+      mutationFn: purchaseCredits,
+      onSuccess: () => invalidate(queryKeys.creditAccount(id), queryKeys.activity(id)),
+    }),
+    activateSubscription: useMutation({
+      mutationFn: activateSubscription,
+      onSuccess: () => invalidate(queryKeys.subscription(id), queryKeys.creditAccount(id), queryKeys.activity(id)),
+    }),
+    restoreSubscription: useMutation({
+      mutationFn: restoreSubscription,
+      onSuccess: () => invalidate(queryKeys.subscription(id)),
+    }),
+    updateSettings: useMutation({
+      mutationFn: ({ notifications, privacy }: Parameters<typeof updateSettings> extends [infer A, infer B] ? { notifications: A; privacy: B } : never) =>
+        updateSettings(notifications, privacy),
+      onSuccess: () => invalidate(queryKeys.settings(id), queryKeys.discoverProfiles(id)),
+    }),
+    addPhotos: useMutation({
+      mutationFn: async ({ uris, existingCount }: { uris: string[]; existingCount: number }) =>
+        Promise.all(uris.map((uri, index) => uploadCurrentUserProfilePhoto(uri, existingCount + index))),
+      onSuccess: () => invalidate(queryKeys.profile(id), queryKeys.discoverProfiles(id)),
+    }),
+    removePhoto: useMutation({
+      mutationFn: deleteCurrentUserProfilePhoto,
+      onSuccess: () => invalidate(queryKeys.profile(id), queryKeys.discoverProfiles(id)),
+    }),
+    reorderPhotos: useMutation({
+      mutationFn: updateCurrentUserProfilePhotoOrder,
+      onSuccess: () => invalidate(queryKeys.profile(id), queryKeys.discoverProfiles(id)),
+    }),
+  };
+}

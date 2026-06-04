@@ -1,10 +1,10 @@
 import { Redirect, Stack } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function AuthLayout() {
-  const { isHydrated, isAuthenticated, hasCompletedOnboarding } = useAppState();
+  const { isHydrated, isAuthenticated, hasCompletedOnboarding } = useAppData();
 
   if (!isHydrated) {
     return (

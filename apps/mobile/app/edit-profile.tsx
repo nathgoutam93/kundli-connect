@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     Animated,
+    ActivityIndicator,
     KeyboardAvoidingView,
     PanResponder,
     type PanResponderGestureState,
@@ -22,7 +23,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
+import { type UserProfile } from '@/constants/mock-data';
 
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 4;
@@ -62,7 +64,7 @@ type FormState = {
     photoUris: string[];
 };
 
-function profileToForm(profile: ReturnType<typeof useAppState.getState>['profile']): FormState {
+function profileToForm(profile: UserProfile): FormState {
     return {
         name: profile.name === 'New User' ? '' : profile.name,
         email: profile.email,
@@ -97,25 +99,23 @@ export default function EditProfileScreen() {
         addProfilePhotos,
         isServiceBusy,
         profile,
-        refreshProfile,
         removeProfilePhoto,
         updateProfile,
-    } = useAppState();
+    } = useAppData();
     const [form, setForm] = useState<FormState>(() => profileToForm(profile));
+    const [savedForm] = useState<FormState>(() => profileToForm(profile));
+    const [isLoadingProfile] = useState(false);
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
     const [photoGridWidth, setPhotoGridWidth] = useState(0);
     const [draggingPhotoUri, setDraggingPhotoUri] = useState<string | null>(null);
     const [photoDropTargetIndex, setPhotoDropTargetIndex] = useState<number | null>(null);
     const [isPhotoDragging, setIsPhotoDragging] = useState(false);
+    const [uploadingPhotoUris, setUploadingPhotoUris] = useState<Set<string>>(() => new Set());
     const photoUrisRef = useRef(form.photoUris);
     const draggingPhotoUriRef = useRef<string | null>(null);
     const dragStartIndexRef = useRef<number | null>(null);
     const photoDropTargetIndexRef = useRef<number | null>(null);
-
-    useEffect(() => {
-        refreshProfile()
-            .then(() => setForm(profileToForm(useAppState.getState().profile)))
-            .catch(() => undefined);
-    }, [refreshProfile]);
+    const hasUnsavedChanges = useMemo(() => JSON.stringify(form) !== JSON.stringify(savedForm), [form, savedForm]);
 
     useEffect(() => {
         photoUrisRef.current = form.photoUris;
@@ -123,6 +123,30 @@ export default function EditProfileScreen() {
 
     function updateForm<T extends keyof FormState>(key: T, value: FormState[T]) {
         setForm((current) => ({ ...current, [key]: value }));
+    }
+
+    function setPhotoUploading(uri: string, isUploading: boolean) {
+        setUploadingPhotoUris((current) => {
+            const next = new Set(current);
+            if (isUploading) {
+                next.add(uri);
+            } else {
+                next.delete(uri);
+            }
+            return next;
+        });
+    }
+
+    function replacePhotoUri(currentUri: string, nextUri?: string) {
+        setForm((current) => ({
+            ...current,
+            photoUris: current.photoUris.flatMap((uri) => {
+                if (uri !== currentUri) {
+                    return [uri];
+                }
+                return nextUri ? [nextUri] : [];
+            }),
+        }));
     }
 
     async function requestPhotoPermission() {
@@ -165,8 +189,22 @@ export default function EditProfileScreen() {
             return;
         }
 
-        const uploadedUris = await addProfilePhotos([pickedUri]);
-        updateForm('photoUris', [...form.photoUris, ...uploadedUris].slice(0, MAX_PHOTOS));
+        setForm((current) => ({ ...current, photoUris: [...current.photoUris, pickedUri].slice(0, MAX_PHOTOS) }));
+        setPhotoUploading(pickedUri, true);
+
+        try {
+            const uploadedUris = await addProfilePhotos([pickedUri]);
+            const uploadedUri = uploadedUris[0];
+            if (!uploadedUri) {
+                throw new Error('Photo upload did not return an image URL.');
+            }
+            replacePhotoUri(pickedUri, uploadedUri);
+        } catch (error) {
+            replacePhotoUri(pickedUri);
+            Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload the selected photo.');
+        } finally {
+            setPhotoUploading(pickedUri, false);
+        }
     }
 
     async function replacePhoto(index: number) {
@@ -176,21 +214,36 @@ export default function EditProfileScreen() {
             return;
         }
 
-        const uploadedUris = await addProfilePhotos([pickedUri]);
-        const nextUri = uploadedUris[0];
-        if (!nextUri) {
-            return;
-        }
-
-        if (oldUri) {
-            await removeProfilePhoto(oldUri);
-        }
-
         setForm((current) => {
             const nextUris = [...current.photoUris];
-            nextUris[index] = nextUri;
+            nextUris[index] = pickedUri;
             return { ...current, photoUris: nextUris };
         });
+        setPhotoUploading(pickedUri, true);
+
+        try {
+            const uploadedUris = await addProfilePhotos([pickedUri]);
+            const uploadedUri = uploadedUris[0];
+            if (!uploadedUri) {
+                throw new Error('Photo upload did not return an image URL.');
+            }
+
+            replacePhotoUri(pickedUri, uploadedUri);
+            setPhotoUploading(pickedUri, false);
+
+            if (oldUri) {
+                try {
+                    await removeProfilePhoto(oldUri);
+                } catch (error) {
+                    Alert.alert('Photo cleanup failed', error instanceof Error ? error.message : 'The previous photo could not be removed.');
+                }
+            }
+        } catch (error) {
+            replacePhotoUri(pickedUri, oldUri);
+            Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload the selected photo.');
+        } finally {
+            setPhotoUploading(pickedUri, false);
+        }
     }
 
     function movePhoto(photoUri: string, toIndex: number) {
@@ -286,40 +339,49 @@ export default function EditProfileScreen() {
     }
 
     async function saveProfile() {
+        if (!hasUnsavedChanges || isLoadingProfile || isSavingProfile || isServiceBusy) {
+            return;
+        }
+
         if (form.photoUris.length < MIN_PHOTOS) {
             Alert.alert('Add more photos', `Please keep at least ${MIN_PHOTOS} profile photos.`);
             return;
         }
 
-        await updateProfile({
-            name: form.name.trim() || profile.name,
-            email: form.email.trim(),
-            dateOfBirth: form.dateOfBirth.trim(),
-            timeOfBirth: form.timeOfBirth.trim(),
-            gender: form.gender,
-            genderPreferences: form.genderPreferences,
-            height: form.height.trim(),
-            familyPlans: form.familyPlans,
-            familyPlansVisibleOnProfile: form.familyPlansVisibleOnProfile,
-            workplace: form.workplace.trim(),
-            workplaceVisibleOnProfile: form.workplaceVisibleOnProfile,
-            jobRole: form.jobRole.trim(),
-            jobRoleVisibleOnProfile: form.jobRoleVisibleOnProfile,
-            school: form.school.trim(),
-            schoolVisibleOnProfile: form.schoolVisibleOnProfile,
-            educationLevel: form.educationLevel.trim(),
-            educationLevelVisibleOnProfile: form.educationLevelVisibleOnProfile,
-            religiousBeliefs: form.religiousBeliefs,
-            drinking: form.drinking,
-            drinkingVisibleOnProfile: form.drinkingVisibleOnProfile,
-            smoking: form.smoking,
-            smokingVisibleOnProfile: form.smokingVisibleOnProfile,
-            location: form.location.trim(),
-            bio: form.bio.trim(),
-            photoUris: form.photoUris,
-        });
+        setIsSavingProfile(true);
+        try {
+            await updateProfile({
+                name: form.name.trim() || profile.name,
+                email: form.email.trim(),
+                dateOfBirth: form.dateOfBirth.trim(),
+                timeOfBirth: form.timeOfBirth.trim(),
+                gender: form.gender,
+                genderPreferences: form.genderPreferences,
+                height: form.height.trim(),
+                familyPlans: form.familyPlans,
+                familyPlansVisibleOnProfile: form.familyPlansVisibleOnProfile,
+                workplace: form.workplace.trim(),
+                workplaceVisibleOnProfile: form.workplaceVisibleOnProfile,
+                jobRole: form.jobRole.trim(),
+                jobRoleVisibleOnProfile: form.jobRoleVisibleOnProfile,
+                school: form.school.trim(),
+                schoolVisibleOnProfile: form.schoolVisibleOnProfile,
+                educationLevel: form.educationLevel.trim(),
+                educationLevelVisibleOnProfile: form.educationLevelVisibleOnProfile,
+                religiousBeliefs: form.religiousBeliefs,
+                drinking: form.drinking,
+                drinkingVisibleOnProfile: form.drinkingVisibleOnProfile,
+                smoking: form.smoking,
+                smokingVisibleOnProfile: form.smokingVisibleOnProfile,
+                location: form.location.trim(),
+                bio: form.bio.trim(),
+                photoUris: form.photoUris,
+            });
 
-        router.back();
+            router.back();
+        } finally {
+            setIsSavingProfile(false);
+        }
     }
 
     return (
@@ -330,9 +392,15 @@ export default function EditProfileScreen() {
                         <Ionicons name="chevron-back" size={24} color="#101010" />
                     </Pressable>
                     <Text style={styles.title}>Edit Profile</Text>
-                    <Pressable style={styles.saveButton} onPress={saveProfile} disabled={isServiceBusy}>
-                        <Text style={styles.saveText}>{isServiceBusy ? 'Saving' : 'Save'}</Text>
-                    </Pressable>
+                    <View style={styles.topBarAction}>
+                        {isLoadingProfile ? (
+                            <ActivityIndicator accessibilityLabel="Loading profile" size="small" color="#FCAD00" />
+                        ) : hasUnsavedChanges || isSavingProfile ? (
+                            <Pressable style={styles.saveButton} onPress={saveProfile} disabled={isServiceBusy || isSavingProfile}>
+                                <Text numberOfLines={1} style={styles.saveText}>{isSavingProfile ? 'Saving' : 'Save'}</Text>
+                            </Pressable>
+                        ) : null}
+                    </View>
                 </View>
 
                 <ScrollView
@@ -359,6 +427,7 @@ export default function EditProfileScreen() {
                                                     isBusy={isServiceBusy}
                                                     isDropTarget={photoDropTargetIndex === index}
                                                     isDragging={Boolean(photoUri && draggingPhotoUri === photoUri)}
+                                                    isUploading={Boolean(photoUri && uploadingPhotoUris.has(photoUri))}
                                                     photoUri={photoUri}
                                                     slotSize={photoSlotSize}
                                                     slotStyle={columnIndex < PHOTO_GRID_COLUMNS - 1 ? styles.photoSlotSpaced : undefined}
@@ -375,7 +444,7 @@ export default function EditProfileScreen() {
                                 ))}
                         </View>
                         <Text style={styles.helperText}>
-                            Tap to replace, or drag a photo to reorder it. Replaced photos are deleted from Storage.
+                            Tap a photo to replace it, or drag its handle to reorder it. Replaced photos are deleted from Storage.
                         </Text>
                     </Section>
 
@@ -425,6 +494,7 @@ function PhotoSlot({
     isBusy,
     isDropTarget,
     isDragging,
+    isUploading,
     photoUri,
     slotSize,
     slotStyle,
@@ -439,6 +509,7 @@ function PhotoSlot({
     isBusy: boolean;
     isDropTarget: boolean;
     isDragging: boolean;
+    isUploading: boolean;
     photoUri?: string;
     slotSize?: number;
     slotStyle?: StyleProp<ViewStyle>;
@@ -449,57 +520,34 @@ function PhotoSlot({
     onRemove: (uri: string) => void;
     onReplace: (index: number) => void;
 }) {
-    const didDragRef = useRef(false);
     const dragOffset = useRef(new Animated.ValueXY()).current;
-    const touchStartedOnRemoveRef = useRef(false);
-    const finishDrag = useCallback(() => {
-        onEndDrag();
-        dragOffset.setValue({ x: 0, y: 0 });
-        setTimeout(() => {
-            didDragRef.current = false;
-        }, 150);
-    }, [dragOffset, onEndDrag]);
-    const isRemoveTouch = useCallback(
-        (locationX: number, locationY: number) => Boolean(slotSize && locationX >= slotSize - 44 && locationY <= 44),
-        [slotSize]
-    );
+    const dragHandlersRef = useRef({ onBeginDrag, onEndDrag, onMoveDrag });
+    dragHandlersRef.current = { onBeginDrag, onEndDrag, onMoveDrag };
 
     const panResponder = useMemo(
         () =>
             PanResponder.create({
-                onStartShouldSetPanResponder: (event) => {
-                    if (!photoUri || isBusy) {
-                        return false;
-                    }
-
-                    touchStartedOnRemoveRef.current = isRemoveTouch(event.nativeEvent.locationX, event.nativeEvent.locationY);
-                    return !touchStartedOnRemoveRef.current;
-                },
-                onMoveShouldSetPanResponder: (_, gesture) =>
-                    Boolean(photoUri) && !isBusy && !touchStartedOnRemoveRef.current && Math.hypot(gesture.dx, gesture.dy) > 3,
+                onStartShouldSetPanResponder: () => Boolean(photoUri) && !isBusy,
+                onMoveShouldSetPanResponder: () => Boolean(photoUri) && !isBusy,
                 onPanResponderGrant: () => {
-                    didDragRef.current = false;
                     dragOffset.setValue({ x: 0, y: 0 });
-                    onBeginDrag(index);
+                    dragHandlersRef.current.onBeginDrag(index);
                 },
                 onPanResponderMove: (_, gesture) => {
-                    didDragRef.current = Math.hypot(gesture.dx, gesture.dy) > 3;
                     dragOffset.setValue({ x: gesture.dx, y: gesture.dy });
-                    onMoveDrag(gesture);
+                    dragHandlersRef.current.onMoveDrag(gesture);
                 },
                 onPanResponderRelease: () => {
-                    if (!didDragRef.current) {
-                        dragOffset.setValue({ x: 0, y: 0 });
-                        onEndDrag();
-                        onReplace(index);
-                        return;
-                    }
-
-                    finishDrag();
+                    dragHandlersRef.current.onEndDrag();
+                    dragOffset.setValue({ x: 0, y: 0 });
                 },
-                onPanResponderTerminate: finishDrag,
+                onPanResponderTerminate: () => {
+                    dragHandlersRef.current.onEndDrag();
+                    dragOffset.setValue({ x: 0, y: 0 });
+                },
+                onPanResponderTerminationRequest: () => false,
             }),
-        [dragOffset, finishDrag, index, isBusy, isRemoveTouch, onBeginDrag, onEndDrag, onMoveDrag, onReplace, photoUri]
+        [dragOffset, index, isBusy, photoUri]
     );
 
     if (!photoUri) {
@@ -515,7 +563,6 @@ function PhotoSlot({
 
     return (
         <Animated.View
-            {...panResponder.panHandlers}
             style={[
                 styles.photoSlot,
                 slotSize ? { width: slotSize, height: slotSize } : null,
@@ -530,15 +577,35 @@ function PhotoSlot({
                     ],
                 },
             ]}>
-            <Image source={{ uri: photoUri }} style={styles.photo} contentFit="cover" />
+            <Pressable
+                accessibilityLabel={`Replace photo ${index + 1}`}
+                disabled={isBusy || isDragging || isUploading}
+                onPress={() => onReplace(index)}
+                style={styles.photoPressable}>
+                <Image source={{ uri: photoUri }} style={styles.photo} contentFit="cover" />
+            </Pressable>
             <Pressable
                 accessibilityLabel="Remove photo"
                 hitSlop={10}
                 style={styles.removeButton}
                 onPress={() => onRemove(photoUri)}
-                disabled={isBusy}>
+                disabled={isBusy || isUploading}>
                 <Ionicons name="close" size={12} color="#FFFFFF" />
             </Pressable>
+            {isUploading ? (
+                <View style={styles.uploadOverlay}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <Text style={styles.uploadText}>Uploading</Text>
+                </View>
+            ) : (
+                <View
+                    {...panResponder.panHandlers}
+                    accessibilityLabel={`Reorder photo ${index + 1}`}
+                    accessibilityRole="button"
+                    style={styles.dragHandle}>
+                    <Ionicons name="reorder-three" size={16} color="#FFFFFF" />
+                </View>
+            )}
         </Animated.View>
     );
 }
@@ -663,8 +730,14 @@ const styles = StyleSheet.create({
         fontSize: 21,
         fontWeight: '800',
     },
+    topBarAction: {
+        width: 78,
+        minHeight: 42,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     saveButton: {
-        minWidth: 66,
+        width: '100%',
         minHeight: 42,
         borderRadius: 21,
         backgroundColor: '#FFD11B',
@@ -720,9 +793,9 @@ const styles = StyleSheet.create({
     photoSlotDragging: {
         borderStyle: 'solid',
         borderColor: '#FCAD00',
-        opacity: 0.72,
-        zIndex: 2,
-        elevation: 2,
+        opacity: 0.82,
+        zIndex: 100,
+        elevation: 12,
     },
     photoSlotDropTarget: {
         borderStyle: 'solid',
@@ -730,6 +803,10 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFF4C7',
     },
     photo: {
+        width: '100%',
+        height: '100%',
+    },
+    photoPressable: {
         width: '100%',
         height: '100%',
     },
@@ -746,14 +823,26 @@ const styles = StyleSheet.create({
     },
     dragHandle: {
         position: 'absolute',
-        right: 7,
-        bottom: 7,
-        width: 24,
-        height: 24,
-        borderRadius: 12,
+        right: 6,
+        bottom: 6,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         backgroundColor: 'rgba(9, 10, 14, 0.56)',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    uploadOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(9, 10, 14, 0.55)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 7,
+    },
+    uploadText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '800',
     },
     helperText: {
         color: '#85858D',

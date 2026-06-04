@@ -13,12 +13,12 @@ import {
     View,
 } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const PREFER_NOT_TO_SAY = 'Prefer not to say';
 
 export default function EducationScreen() {
-    const { profile, updateProfile } = useAppState();
+    const { profile, updateProfile } = useAppData();
     const [school, setSchool] = useState(profile.school || '');
     const [educationLevel, setEducationLevel] = useState(profile.educationLevel || '');
     const [schoolVisibleOnProfile, setSchoolVisibleOnProfile] = useState(

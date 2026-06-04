@@ -4,12 +4,12 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function MatchScreen() {
   const insets = useSafeAreaInsets();
-  const chat = useAppState((state) => state.chats.find((item) => !item.hidden) ?? state.chats[0]);
-  const viewer = useAppState((state) => state.profile);
+  const chat = useAppData((state) => state.chats.find((item) => !item.hidden) ?? state.chats[0]);
+  const viewer = useAppData((state) => state.profile);
   const viewerPhoto =
     viewer.photoUris[0] ??
     'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85';

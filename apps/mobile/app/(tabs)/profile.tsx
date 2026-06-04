@@ -2,8 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
-import { type ReactNode, useCallback, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
@@ -19,7 +18,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ProgressiveBlur } from '@/components/progressive-blur';
-import { useAppState } from '@/store/use-app-state';
+import { type UserProfile } from '@/constants/mock-data';
+import { useAppData } from '@/hooks/use-app-data';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Non - Binary'];
 const PREFERENCE_OPTIONS = ['Male', 'Female', 'Non - Binary People', 'Everyone'];
@@ -67,7 +67,7 @@ type FormState = {
 };
 
 export default function ProfileScreen() {
-    const { addProfilePhotos, isServiceBusy, profile, refreshProfile, removeProfilePhoto, updateProfile } = useAppState();
+    const { addProfilePhotos, isServiceBusy, profile, removeProfilePhoto, updateProfile } = useAppData();
     const insets = useSafeAreaInsets();
     const [isEditing, setIsEditing] = useState(false);
     const [form, setForm] = useState<FormState>(() => ({
@@ -106,16 +106,6 @@ export default function ProfileScreen() {
     const firstDetails = profileDetails.slice(0, 4);
     const secondDetails = profileDetails.slice(4, 8);
     const remainingDetails = profileDetails.slice(8);
-
-    useFocusEffect(
-        useCallback(() => {
-            if (isEditing) {
-                return;
-            }
-
-            refreshProfile().catch(() => undefined);
-        }, [isEditing, refreshProfile])
-    );
 
     function updateForm<T extends keyof FormState>(key: T, value: FormState[T]) {
         setForm((current) => ({ ...current, [key]: value }));
@@ -508,7 +498,7 @@ function InlineProfilePhoto({ uri }: { uri: string }) {
     );
 }
 
-function buildProfileDetails(profile: ReturnType<typeof useAppState.getState>['profile']) {
+function buildProfileDetails(profile: UserProfile) {
     const genderPreference = profile.genderPreferences?.join(', ');
     const work = [profile.workplaceVisibleOnProfile ? profile.workplace : '', profile.jobRoleVisibleOnProfile ? profile.jobRole : '']
         .filter(Boolean)

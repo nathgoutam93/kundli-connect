@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function NotificationsScreen() {
-  const { completeOnboarding } = useAppState();
+  const { completeOnboarding } = useAppData();
   const [isRegistering, setIsRegistering] = useState(false);
 
   async function handleContinue() {

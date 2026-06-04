@@ -3,12 +3,12 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const FAMILY_PLAN_OPTIONS = ['Dont want Children', 'Want Children', 'Open to Children', 'Not Sure'];
 
 export default function FamilyPlanningScreen() {
-  const { profile, updateProfile } = useAppState();
+  const { profile, updateProfile } = useAppData();
   const [familyPlans, setFamilyPlans] = useState(profile.familyPlans || 'Want Children');
   const [familyPlansVisibleOnProfile, setFamilyPlansVisibleOnProfile] = useState(
     profile.familyPlansVisibleOnProfile ?? true

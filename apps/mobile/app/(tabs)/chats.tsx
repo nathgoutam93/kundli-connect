@@ -1,45 +1,19 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { type ChatPreview } from '@/constants/mock-data';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function ChatsScreen() {
   const insets = useSafeAreaInsets();
-  const { chats, isAuthenticated, refreshChats } = useAppState();
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const { chats } = useAppData();
+  const [isInitialLoading] = useState(false);
   const displayedChats = isInitialLoading ? [] : chats;
   const visibleChats = displayedChats.filter((chat) => !chat.hidden);
   const hiddenMatches = displayedChats.filter((chat) => chat.hidden);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!isAuthenticated) {
-      setIsInitialLoading(false);
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    setIsInitialLoading(true);
-    void refreshChats()
-      .catch((error) => {
-        console.warn('Failed to refresh chats.', error);
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsInitialLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isAuthenticated, refreshChats]);
 
   return (
     <View style={styles.screen}>

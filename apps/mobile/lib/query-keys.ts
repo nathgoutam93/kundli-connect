@@ -1,0 +1,15 @@
+export const queryKeys = {
+  user: (userId: string) => ['user', userId] as const,
+  profile: (userId: string) => [...queryKeys.user(userId), 'profile'] as const,
+  kundli: (userId: string) => [...queryKeys.user(userId), 'kundli'] as const,
+  discoverProfiles: (userId: string) => [...queryKeys.user(userId), 'discover-profiles'] as const,
+  incomingLikes: (userId: string) => [...queryKeys.user(userId), 'incoming-likes'] as const,
+  sentLikes: (userId: string) => [...queryKeys.user(userId), 'sent-likes'] as const,
+  chatPreviews: (userId: string) => [...queryKeys.user(userId), 'chat-previews'] as const,
+  chatMessages: (userId: string, chatId: string) => [...queryKeys.user(userId), 'chat-messages', chatId] as const,
+  activity: (userId: string) => [...queryKeys.user(userId), 'activity'] as const,
+  creditAccount: (userId: string) => [...queryKeys.user(userId), 'credit-account'] as const,
+  subscription: (userId: string) => [...queryKeys.user(userId), 'subscription'] as const,
+  subscriptionPlans: ['subscription-plans'] as const,
+  settings: (userId: string) => [...queryKeys.user(userId), 'settings'] as const,
+};

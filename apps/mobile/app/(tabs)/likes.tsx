@@ -1,8 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
-    Alert,
     ActivityIndicator,
     Image,
     KeyboardAvoidingView,
@@ -17,37 +16,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { type DiscoverProfile, type LikeItem } from '@/constants/mock-data';
-import { useAppState } from '@/store/use-app-state';
+import { type LikeItem } from '@/constants/mock-data';
+import { useAppData } from '@/hooks/use-app-data';
 
 type ScoreModalTab = 'score' | 'profile';
 
 export default function LikesScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
-    const { consumeCredit, likes, profile, refreshLikes, replyToLike, dismissLike } = useAppState();
+    const { likes, profile, replyToLike, dismissLike } = useAppData();
     const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
-    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [sendingReplyIds, setSendingReplyIds] = useState<Record<string, boolean>>({});
+    const [isInitialLoading] = useState(false);
     const displayedLikes = isInitialLoading ? [] : likes;
-
-    useEffect(() => {
-        let isMounted = true;
-
-        setIsInitialLoading(true);
-        void refreshLikes()
-            .catch((error) => {
-                console.warn('Failed to refresh incoming likes.', error);
-            })
-            .finally(() => {
-                if (isMounted) {
-                    setIsInitialLoading(false);
-                }
-            });
-
-        return () => {
-            isMounted = false;
-        };
-    }, [refreshLikes]);
 
     function updateReply(likeId: string, value: string) {
         setReplyDrafts((drafts) => ({
@@ -59,17 +40,27 @@ export default function LikesScreen() {
     async function sendReply(likeId: string) {
         const reply = replyDrafts[likeId]?.trim();
 
-        if (!reply) {
+        if (!reply || sendingReplyIds[likeId]) {
             return;
         }
 
-        const chatId = await replyToLike(likeId, reply);
-        setReplyDrafts((drafts) => {
-            const nextDrafts = { ...drafts };
-            delete nextDrafts[likeId];
-            return nextDrafts;
-        });
-        router.push(chatId ? `/chat/${chatId}` : '/(tabs)/chats');
+        setSendingReplyIds((ids) => ({ ...ids, [likeId]: true }));
+
+        try {
+            const chatId = await replyToLike(likeId, reply);
+            setReplyDrafts((drafts) => {
+                const nextDrafts = { ...drafts };
+                delete nextDrafts[likeId];
+                return nextDrafts;
+            });
+            router.push(chatId ? `/chat/${chatId}` : '/(tabs)/chats');
+        } finally {
+            setSendingReplyIds((ids) => {
+                const nextIds = { ...ids };
+                delete nextIds[likeId];
+                return nextIds;
+            });
+        }
     }
 
     return (
@@ -105,18 +96,13 @@ export default function LikesScreen() {
                                 key={like.id}
                                 like={like}
                                 reply={replyDrafts[like.id] ?? ''}
+                                isSendingReply={Boolean(sendingReplyIds[like.id])}
                                 viewerName={profile.name}
                                 viewerPhotoUri={profile.photoUris[0]}
                                 onChangeReply={(value) => updateReply(like.id, value)}
                                 onDismiss={() => dismissLike(like.id)}
                                 onReply={() => sendReply(like.id)}
-                                onViewScore={async () => {
-                                    const consumed = await consumeCredit(`Generated score for ${like.fromName}`);
-                                    if (!consumed) {
-                                        Alert.alert('Credits needed', 'Add credits or upgrade to generate match scores.');
-                                    }
-                                    return consumed;
-                                }}
+                                onViewScore={async () => true}
                             />
                         ))}
                     </View>
@@ -139,6 +125,7 @@ export default function LikesScreen() {
 function LikeCard({
     like,
     reply,
+    isSendingReply,
     viewerName,
     viewerPhotoUri,
     onChangeReply,
@@ -148,6 +135,7 @@ function LikeCard({
 }: {
     like: LikeItem;
     reply: string;
+    isSendingReply: boolean;
     viewerName: string;
     viewerPhotoUri?: string;
     onChangeReply: (value: string) => void;
@@ -204,6 +192,7 @@ function LikeCard({
                     onChangeReply={onChangeReply}
                     onClose={() => setIsScoreOpen(false)}
                     reply={reply}
+                    isSendingReply={isSendingReply}
                     viewerName={viewerName}
                     viewerPhotoUri={viewerPhotoUri}
                 />
@@ -224,6 +213,7 @@ function KundaliScorePreview({
     onDismiss,
     onReply,
     reply,
+    isSendingReply,
 }: {
     like: LikeItem;
     viewerName: string;
@@ -236,16 +226,14 @@ function KundaliScorePreview({
     onDismiss: () => void;
     onReply: () => void;
     reply: string;
+    isSendingReply: boolean;
 }) {
     const insets = useSafeAreaInsets();
     const [activeTab, setActiveTab] = useState<ScoreModalTab>('score');
     const safeViewerName = viewerName === 'New User' ? 'You' : viewerName;
     const fallbackViewerPhoto =
         'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85';
-    const discoverProfile = useAppState((state) =>
-        state.discoverProfiles.find((profile) => profile.id === like.fromProfileId || profile.name === like.fromName)
-    );
-    const profile = buildLikeProfile(like, discoverProfile);
+    const profile = buildLikeProfile(like);
     const scores = like.compatibility.breakdown ?? [
         { label: 'Guna Milan', value: 84 },
         { label: 'Nadi Compatibility', value: 74 },
@@ -260,7 +248,7 @@ function KundaliScorePreview({
     const doshas = like.compatibility.doshas ?? ['Kendrum'];
     const [isReplyComposerOpen, setIsReplyComposerOpen] = useState(false);
     const canReply = reply.trim().length > 0;
-    const canPressReply = !isReplyComposerOpen || canReply;
+    const canPressReply = !isSendingReply && (!isReplyComposerOpen || canReply);
 
     function handleReplyPress() {
         if (activeTab !== 'score') {
@@ -367,6 +355,7 @@ function KundaliScorePreview({
                             <Text style={styles.scoreOpeningText}>{openingMessage}</Text>
                         </View>
                         <TextInput
+                            editable={!isSendingReply}
                             multiline
                             onChangeText={onChangeReply}
                             placeholder={`Reply to ${likedName}`}
@@ -387,6 +376,7 @@ function KundaliScorePreview({
                     </Pressable>
                     <Pressable
                         accessibilityLabel={`Reply to ${likedName}`}
+                        accessibilityState={{ busy: isSendingReply, disabled: !canPressReply }}
                         disabled={!canPressReply}
                         onPress={handleReplyPress}
                         style={({ pressed }) => [
@@ -394,8 +384,17 @@ function KundaliScorePreview({
                             !canPressReply && styles.replyButtonDisabled,
                             pressed && canPressReply && styles.replyButtonPressed,
                         ]}>
-                        <Text style={styles.scoreReplyText}>{isReplyComposerOpen ? 'Send Reply' : 'Reply'}</Text>
-                        <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
+                        {isSendingReply ? (
+                            <>
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                                <Text style={styles.scoreReplyText}>Sending...</Text>
+                            </>
+                        ) : (
+                            <>
+                                <Text style={styles.scoreReplyText}>{isReplyComposerOpen ? 'Send Reply' : 'Reply'}</Text>
+                                <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
+                            </>
+                        )}
                     </Pressable>
                 </View>
             </View>
@@ -403,15 +402,15 @@ function KundaliScorePreview({
     );
 }
 
-function buildLikeProfile(like: LikeItem, discoverProfile?: DiscoverProfile) {
-    if (discoverProfile) {
+function buildLikeProfile(like: LikeItem) {
+    if (like.fromProfile) {
         return {
-            name: discoverProfile.name,
-            age: discoverProfile.age,
-            location: discoverProfile.location,
-            bio: discoverProfile.bio,
-            photos: discoverProfile.photos,
-            details: discoverProfile.details,
+            name: like.fromProfile.name,
+            age: like.fromProfile.age,
+            location: like.fromProfile.location,
+            bio: like.fromProfile.bio,
+            photos: like.fromProfile.photos,
+            details: like.fromProfile.details,
         };
     }
 

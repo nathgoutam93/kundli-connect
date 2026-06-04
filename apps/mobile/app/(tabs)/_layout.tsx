@@ -6,10 +6,10 @@ import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 
 import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function MainTabsLayout() {
-  const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile } = useAppState();
+  const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile } = useAppData();
   const hasCheckedNotificationPromptRef = useRef(false);
 
   useEffect(() => {

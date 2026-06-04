@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { type SubscriptionPlan } from '@/constants/mock-data';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function SubscriptionsScreen() {
   const insets = useSafeAreaInsets();
@@ -17,7 +17,7 @@ export default function SubscriptionsScreen() {
     restorePurchases,
     subscription,
     subscriptionPlans,
-  } = useAppState();
+  } = useAppData();
 
   return (
     <ScrollView
@@ -29,7 +29,7 @@ export default function SubscriptionsScreen() {
       showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.eyebrow}>Billing mock</Text>
+          <Text style={styles.eyebrow}>Billing</Text>
           <Text style={styles.title}>Premium</Text>
         </View>
         <Pressable style={styles.closeButton} onPress={() => router.back()}>

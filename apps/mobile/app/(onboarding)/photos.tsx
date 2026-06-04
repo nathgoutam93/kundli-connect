@@ -2,21 +2,30 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const PHOTO_SLOTS = Array.from({ length: 6 }, (_, index) => index);
 const MIN_PHOTOS = 4;
 const MAX_PHOTOS = PHOTO_SLOTS.length;
 
 export default function PhotosScreen() {
-  const { addProfilePhotos, isServiceBusy, profile, removeProfilePhoto } = useAppState();
+  const { addProfilePhotos, isServiceBusy, profile, removeProfilePhoto } = useAppData();
   const { width } = useWindowDimensions();
-  const selectedPhotoUris = (profile.photoUris ?? []).slice(0, MAX_PHOTOS);
-  const canContinue = selectedPhotoUris.length >= MIN_PHOTOS;
+  const [selectedPhotoUris, setSelectedPhotoUris] = useState(() => (profile.photoUris ?? []).slice(0, MAX_PHOTOS));
+  const [uploadingPhotoUris, setUploadingPhotoUris] = useState<Set<string>>(() => new Set());
+  const isUploadingPhotos = uploadingPhotoUris.size > 0;
+  const canContinue = selectedPhotoUris.length >= MIN_PHOTOS && !isUploadingPhotos;
   const slotSize = (width - 44 - 18) / 2;
+
+  useEffect(() => {
+    if (!isUploadingPhotos) {
+      setSelectedPhotoUris((profile.photoUris ?? []).slice(0, MAX_PHOTOS));
+    }
+  }, [isUploadingPhotos, profile.photoUris]);
 
   async function handlePickPhotos() {
     const remainingSlots = MAX_PHOTOS - selectedPhotoUris.length;
@@ -45,11 +54,35 @@ export default function PhotosScreen() {
     }
 
     const pickedUris = result.assets.map((asset) => asset.uri).filter(Boolean);
-    await addProfilePhotos(pickedUris.slice(0, remainingSlots));
+    const optimisticUris = pickedUris.slice(0, remainingSlots);
+    if (optimisticUris.length === 0) {
+      return;
+    }
+
+    setSelectedPhotoUris((current) => [...current, ...optimisticUris].slice(0, MAX_PHOTOS));
+    setUploadingPhotoUris(new Set(optimisticUris));
+
+    try {
+      const uploadedUris = await addProfilePhotos(optimisticUris);
+      if (uploadedUris.length !== optimisticUris.length) {
+        throw new Error('Some selected photos did not finish uploading.');
+      }
+
+      const uploadedByLocalUri = new Map(optimisticUris.map((uri, index) => [uri, uploadedUris[index]]));
+      setSelectedPhotoUris((current) =>
+        current.map((uri) => uploadedByLocalUri.get(uri) ?? uri).slice(0, MAX_PHOTOS)
+      );
+    } catch (error) {
+      setSelectedPhotoUris((current) => current.filter((uri) => !optimisticUris.includes(uri)));
+      Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload the selected photos.');
+    } finally {
+      setUploadingPhotoUris(new Set());
+    }
   }
 
   async function handleRemovePhoto(uriToRemove: string) {
     await removeProfilePhoto(uriToRemove);
+    setSelectedPhotoUris((current) => current.filter((uri) => uri !== uriToRemove));
   }
 
   async function handleContinue() {
@@ -83,7 +116,7 @@ export default function PhotosScreen() {
               <Pressable
                 key={slot}
                 style={[styles.photoSlot, { width: slotSize, height: slotSize }]}
-                onPress={isServiceBusy ? undefined : handlePickPhotos}>
+                onPress={isServiceBusy || isUploadingPhotos ? undefined : handlePickPhotos}>
                 {photoUri ? (
                   <>
                     <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
@@ -92,10 +125,16 @@ export default function PhotosScreen() {
                       hitSlop={10}
                       style={styles.removeBadge}
                       onPress={() => handleRemovePhoto(photoUri)}
-                      disabled={isServiceBusy}
+                      disabled={isServiceBusy || uploadingPhotoUris.has(photoUri)}
                     >
                       <Ionicons name="close" size={12} color="#FFFFFF" />
                     </Pressable>
+                    {uploadingPhotoUris.has(photoUri) ? (
+                      <View style={styles.uploadOverlay}>
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <Text style={styles.uploadText}>Uploading</Text>
+                      </View>
+                    ) : null}
                   </>
                 ) : (
                   <Text style={styles.addText}>+</Text>
@@ -110,7 +149,7 @@ export default function PhotosScreen() {
             {selectedPhotoUris.length}/{MAX_PHOTOS} selected
           </Text>
           <Text style={styles.requiredText}>
-            {isServiceBusy
+            {isUploadingPhotos
               ? 'Uploading photos...'
               : canContinue
                 ? 'Ready to continue'
@@ -122,7 +161,7 @@ export default function PhotosScreen() {
       <Pressable
         style={[styles.nextButton, !canContinue && styles.nextButtonDisabled]}
         onPress={handleContinue}
-        disabled={!canContinue || isServiceBusy}
+        disabled={!canContinue || isServiceBusy || isUploadingPhotos}
       >
         <Ionicons name="chevron-forward" size={31} color="#FFFFFF" />
       </Pressable>
@@ -205,6 +244,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(9, 10, 14, 0.72)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(9, 10, 14, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  uploadText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   photoCountWrap: {
     marginTop: 17,

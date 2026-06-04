@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { type ActivityItem } from '@/constants/mock-data';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const iconByType: Record<ActivityItem['type'], keyof typeof Ionicons.glyphMap> = {
   match: 'sparkles',
@@ -18,7 +18,7 @@ const iconByType: Record<ActivityItem['type'], keyof typeof Ionicons.glyphMap> =
 export default function ActivityScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const activity = useAppState((state) => state.activity);
+  const activity = useAppData((state) => state.activity);
 
   return (
     <View style={styles.screen}>

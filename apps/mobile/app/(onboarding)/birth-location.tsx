@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Location from 'expo-location';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -12,13 +14,15 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, type MapPressEvent, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppState } from '@/store/use-app-state';
+import { BirthLocationMap } from '@/components/birth-location-map';
+import { useAppData } from '@/hooks/use-app-data';
 
-const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
-const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? googlePlacesApiKey;
+const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? googleMapsApiKey;
+const hasExpoMapsNativeModule =
+  Platform.OS === 'web' || Boolean(requireOptionalNativeModule('ExpoMaps'));
 
 const DEFAULT_BIRTH_COORDINATE = {
   latitude: 28.6139,
@@ -32,6 +36,11 @@ const SELECTED_PLACE_MAP_DELTA = 0.25;
 type Coordinate = {
   latitude: number;
   longitude: number;
+};
+
+type Region = Coordinate & {
+  latitudeDelta: number;
+  longitudeDelta: number;
 };
 
 type PlaceSuggestion = {
@@ -78,7 +87,7 @@ function createPlacesSessionToken() {
 }
 
 export default function BirthLocationScreen() {
-  const { profile, updateProfile, generateKundli, isServiceBusy } = useAppState();
+  const { profile, updateProfile, generateKundli, isServiceBusy } = useAppData();
   const placesSessionTokenRef = useRef(createPlacesSessionToken());
   const initialCoordinate = useMemo(
     () => getInitialCoordinate(profile.birthLatitude, profile.birthLongitude),
@@ -87,6 +96,7 @@ export default function BirthLocationScreen() {
   const [birthPlace, setBirthPlace] = useState(profile.birthPlace);
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
   const [isFetchingPlaces, setIsFetchingPlaces] = useState(false);
+  const [placesError, setPlacesError] = useState('');
   const [hasSelectedSuggestion, setHasSelectedSuggestion] = useState(Boolean(profile.birthPlace));
   const [selectedCoordinate, setSelectedCoordinate] = useState<Coordinate>(initialCoordinate);
   const [mapRegion, setMapRegion] = useState<Region>(() => coordinateToRegion(initialCoordinate));
@@ -110,13 +120,9 @@ export default function BirthLocationScreen() {
           return;
         }
 
-        const location =
-          (await Location.getLastKnownPositionAsync()) ??
-          (await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          }));
+        const location = await Location.getLastKnownPositionAsync();
 
-        if (!isMounted) {
+        if (!isMounted || !location) {
           return;
         }
 
@@ -124,10 +130,8 @@ export default function BirthLocationScreen() {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         });
-      } catch (error) {
-        if (__DEV__) {
-          console.info('Current location unavailable for birth location map; using fallback coordinate.', error);
-        }
+      } catch {
+        // Current location is optional; keep the fallback coordinate when unavailable.
       }
     }
 
@@ -140,6 +144,7 @@ export default function BirthLocationScreen() {
 
   useEffect(() => {
     if (!googlePlacesApiKey) {
+      setPlacesError('Google Places API key is not configured.');
       return;
     }
 
@@ -147,6 +152,7 @@ export default function BirthLocationScreen() {
 
     if (query.length < 3 || hasSelectedSuggestion) {
       setPlaceSuggestions([]);
+      setPlacesError('');
       return;
     }
 
@@ -163,6 +169,7 @@ export default function BirthLocationScreen() {
           ].join('&')}`
         );
         const data = (await response.json()) as {
+          error_message?: string;
           status?: string;
           predictions?: { description: string; place_id: string }[];
         };
@@ -173,9 +180,13 @@ export default function BirthLocationScreen() {
 
         if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
           setPlaceSuggestions([]);
+          setPlacesError(
+            data.error_message || `Place suggestions unavailable (${data.status ?? 'unknown error'}).`
+          );
           return;
         }
 
+        setPlacesError('');
         setPlaceSuggestions(
           (data.predictions ?? []).slice(0, 5).map((prediction) => ({
             description: prediction.description,
@@ -188,6 +199,7 @@ export default function BirthLocationScreen() {
         }
         if (isMounted) {
           setPlaceSuggestions([]);
+          setPlacesError('Place suggestions unavailable. Check your connection and API configuration.');
         }
       } finally {
         if (isMounted) {
@@ -212,7 +224,11 @@ export default function BirthLocationScreen() {
       isInRange(birthTimezone, -12, 14),
     [birthPlace, birthTimezone, selectedCoordinate.latitude, selectedCoordinate.longitude]
   );
-  const canRenderMap = Platform.OS !== 'android' || Boolean(googleMapsApiKey);
+  const canRenderMap =
+    hasExpoMapsNativeModule &&
+    Constants.executionEnvironment !== ExecutionEnvironment.StoreClient &&
+    Platform.OS !== 'web' &&
+    (Platform.OS !== 'android' || Boolean(googleMapsApiKey));
 
   function updateSelectedCoordinate(coordinate: Coordinate) {
     setSelectedCoordinate(coordinate);
@@ -222,13 +238,10 @@ export default function BirthLocationScreen() {
     }));
   }
 
-  function handleMapPress(event: MapPressEvent) {
-    updateSelectedCoordinate(event.nativeEvent.coordinate);
-  }
-
   function handleBirthPlaceChange(value: string) {
     setBirthPlace(value);
     setHasSelectedSuggestion(false);
+    setPlacesError('');
   }
 
   async function selectPlaceSuggestion(suggestion: PlaceSuggestion) {
@@ -374,29 +387,22 @@ export default function BirthLocationScreen() {
                 </View>
               ) : null}
               {isFetchingPlaces ? <Text style={styles.lookupText}>Finding places...</Text> : null}
+              {placesError ? <Text style={styles.errorText}>{placesError}</Text> : null}
             </View>
 
             <View style={styles.section}>
               <Text style={styles.heading}>Pick On Map</Text>
-              <Text style={styles.subheading}>Tap the map or drag the pin to your birth location.</Text>
+              <Text style={styles.subheading}>Tap the map to select your birth location.</Text>
               <View style={styles.mapShell}>
                 {canRenderMap ? (
                   <>
-                    <MapView
+                    <BirthLocationMap
                       style={styles.map}
-                      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                       region={mapRegion}
-                      onRegionChangeComplete={setMapRegion}
-                      zoomEnabled
-                      scrollEnabled
-                      onPress={handleMapPress}>
-                      <Marker
-                        coordinate={selectedCoordinate}
-                        draggable
-                        title={birthPlace.trim() || 'Birth location'}
-                        onDragEnd={(event) => updateSelectedCoordinate(event.nativeEvent.coordinate)}
-                      />
-                    </MapView>
+                      coordinate={selectedCoordinate}
+                      markerTitle={birthPlace.trim() || 'Birth location'}
+                      onCoordinateChange={updateSelectedCoordinate}
+                    />
                     <View style={styles.mapControls}>
                       <Pressable
                         style={styles.mapControlButton}

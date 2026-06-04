@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { ProgressiveBlur } from '@/components/progressive-blur';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const HABIT_OPTIONS = ['Never', 'Sometimes', 'Often', 'Prefer not to say'];
 
 export default function DrinkSmokeScreen() {
-  const { profile, updateProfile } = useAppState();
+  const { profile, updateProfile } = useAppData();
   const [drinking, setDrinking] = useState(profile.drinking || '');
   const [smoking, setSmoking] = useState(profile.smoking || '');
   const [drinkingVisibleOnProfile, setDrinkingVisibleOnProfile] = useState(

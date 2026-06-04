@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const PREFERENCE_OPTIONS = ['Male', 'Female', 'Non - Binary People', 'Everyone'];
 
@@ -20,7 +20,7 @@ function getDefaultPreferences(gender: string) {
 }
 
 export default function GenderPreferencesScreen() {
-  const { profile, updateProfile } = useAppState();
+  const { profile, updateProfile } = useAppData();
   const savedPreferences = profile.genderPreferences ?? [];
   const [selectedPreferences, setSelectedPreferences] = useState<string[]>(
     savedPreferences.length > 0 ? savedPreferences : getDefaultPreferences(profile.gender)

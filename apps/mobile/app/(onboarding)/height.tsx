@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 type HeightUnit = 'ft' | 'cm';
 
@@ -21,7 +21,7 @@ const FOOT_HEIGHTS = Array.from({ length: 55 }, (_, index) => {
 const CM_HEIGHTS = Array.from({ length: 141 }, (_, index) => `${90 + index} cm`);
 
 export default function HeightScreen() {
-    const { profile, updateProfile } = useAppState();
+    const { profile, updateProfile } = useAppData();
     const initialUnit: HeightUnit = profile.height?.includes('cm') ? 'cm' : 'ft';
     const [unit, setUnit] = useState<HeightUnit>(initialUnit);
     const [feetHeight, setFeetHeight] = useState(profile.height && !profile.height.includes('cm') ? profile.height : '');

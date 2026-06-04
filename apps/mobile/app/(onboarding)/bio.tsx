@@ -12,12 +12,12 @@ import {
   View,
 } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const BIO_MAX_LENGTH = 180;
 
 export default function BioScreen() {
-  const { profile, updateProfile } = useAppState();
+  const { profile, updateProfile } = useAppData();
   const [bio, setBio] = useState(profile.bio ?? '');
   const trimmedBio = bio.trim();
   const canContinue = Boolean(trimmedBio);

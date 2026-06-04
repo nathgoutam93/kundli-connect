@@ -1,19 +1,23 @@
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ImageBackground, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ImageBackground, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function WelcomeScreen() {
-  const completeGoogleLogin = useAppState((state) => state.completeGoogleLogin);
+  const completeGoogleLogin = useAppData((state) => state.completeGoogleLogin);
 
   function handleCreateAccount() {
     router.push('/(auth)/phone');
   }
 
   async function handleGoogleLogin() {
-    await completeGoogleLogin();
-    router.replace('/(onboarding)/basics');
+    try {
+      await completeGoogleLogin();
+      router.replace('/(onboarding)/basics');
+    } catch (error) {
+      Alert.alert('Google sign-in unavailable', error instanceof Error ? error.message : 'Try phone sign-in instead.');
+    }
   }
 
   return (

@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import CountryPicker, { Country, CountryCode } from 'react-native-country-picker-modal';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const OTP_LENGTH = 6;
 
@@ -48,7 +48,7 @@ function splitStoredPhone(rawPhone: string) {
 }
 
 export default function PhoneScreen() {
-    const { completeOtpLogin, isServiceBusy, profile, requestOtp, serviceError, setPhoneNumber } = useAppState();
+    const { completeOtpLogin, isServiceBusy, profile, requestOtp, serviceError, setPhoneNumber } = useAppData();
     const parsedPhone = useMemo(() => splitStoredPhone(profile.phoneNumber), [profile.phoneNumber]);
     const phoneInputRef = useRef<TextInput>(null);
     const otpInputRef = useRef<TextInput>(null);
@@ -60,6 +60,8 @@ export default function PhoneScreen() {
     const [secondsLeft, setSecondsLeft] = useState(0);
     const [showOtp, setShowOtp] = useState(false);
     const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+    const [isSendingOtp, setIsSendingOtp] = useState(false);
+    const [isVerifying, setIsVerifying] = useState(false);
     const isVerifyingRef = useRef(false);
 
     useFocusEffect(
@@ -110,13 +112,15 @@ export default function PhoneScreen() {
         }
 
         isVerifyingRef.current = true;
+        setIsVerifying(true);
         completeOtpLogin(otp, otpPhoneNumber)
             .then(() => {
-                router.replace('/(onboarding)/basics');
+                router.replace('/');
             })
             .catch(() => setOtp(''))
             .finally(() => {
                 isVerifyingRef.current = false;
+                setIsVerifying(false);
             });
     }, [completeOtpLogin, otp, otp.length, otpPhoneNumber, showOtp]);
 
@@ -148,7 +152,7 @@ export default function PhoneScreen() {
     }
 
     async function onContinue() {
-        if (!phone.trim()) {
+        if (!phone.trim() || isSendingOtp) {
             return;
         }
 
@@ -159,11 +163,17 @@ export default function PhoneScreen() {
         }
 
         setPhoneNumber(nextPhoneNumber);
-        await requestOtp(nextPhoneNumber);
-        setOtpPhoneNumber(nextPhoneNumber);
-        setShowOtp(true);
-        setOtp('');
-        setSecondsLeft(42);
+        setIsSendingOtp(true);
+
+        try {
+            await requestOtp(nextPhoneNumber);
+            setOtpPhoneNumber(nextPhoneNumber);
+            setShowOtp(true);
+            setOtp('');
+            setSecondsLeft(42);
+        } finally {
+            setIsSendingOtp(false);
+        }
     }
 
     return (
@@ -200,9 +210,20 @@ export default function PhoneScreen() {
                 {!showOtp ? (
                     <Pressable
                         onPress={onContinue}
-                        disabled={!phone.trim() || isServiceBusy}
-                        style={[styles.continueButton, (!phone.trim() || isServiceBusy) && styles.continueButtonDisabled]}>
-                        <Text style={styles.continueButtonText}>{isServiceBusy ? 'Sending...' : 'Continue'}</Text>
+                        disabled={!phone.trim() || isSendingOtp || isServiceBusy}
+                        accessibilityState={{ busy: isSendingOtp, disabled: !phone.trim() || isSendingOtp || isServiceBusy }}
+                        style={[
+                            styles.continueButton,
+                            (!phone.trim() || isSendingOtp || isServiceBusy) && styles.continueButtonDisabled,
+                        ]}>
+                        {isSendingOtp ? (
+                            <>
+                                <ActivityIndicator size="small" color="#1A1A1A" />
+                                <Text style={styles.continueButtonText}>Sending OTP...</Text>
+                            </>
+                        ) : (
+                            <Text style={styles.continueButtonText}>Continue</Text>
+                        )}
                     </Pressable>
                 ) : (
                     <>
@@ -210,7 +231,10 @@ export default function PhoneScreen() {
                             <Text style={styles.sectionLabel}>Enter OTP</Text>
                         </View>
 
-                        <Pressable style={styles.otpRow} onPress={() => otpInputRef.current?.focus()}>
+                        <Pressable
+                            style={styles.otpRow}
+                            disabled={isVerifying}
+                            onPress={() => otpInputRef.current?.focus()}>
                             {Array.from({ length: OTP_LENGTH }).map((_, index) => {
                                 const value = otp[index] ?? '';
                                 const isFilled = Boolean(value);
@@ -241,6 +265,7 @@ export default function PhoneScreen() {
                                 ref={otpInputRef}
                                 value={otp}
                                 onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
+                                editable={!isVerifying}
                                 keyboardType="number-pad"
                                 maxLength={OTP_LENGTH}
                                 textContentType="oneTimeCode"
@@ -248,11 +273,21 @@ export default function PhoneScreen() {
                             />
                         </Pressable>
 
-                        <Pressable onPress={resendCode} disabled={secondsLeft > 0 || isServiceBusy}>
-                            <Text style={styles.resendText}>
-                                You can resend code in <Text style={styles.resendHighlight}>{secondsLeft}</Text> s
-                            </Text>
-                        </Pressable>
+                        {isVerifying ? (
+                            <View
+                                accessibilityLiveRegion="polite"
+                                accessibilityRole="progressbar"
+                                style={styles.verifyingRow}>
+                                <ActivityIndicator size="small" color="#E1B100" />
+                                <Text style={styles.verifyingText}>Verifying code...</Text>
+                            </View>
+                        ) : (
+                            <Pressable onPress={resendCode} disabled={secondsLeft > 0 || isServiceBusy}>
+                                <Text style={styles.resendText}>
+                                    You can resend code in <Text style={styles.resendHighlight}>{secondsLeft}</Text> s
+                                </Text>
+                            </Pressable>
+                        )}
                     </>
                 )}
                 {serviceError ? <Text style={styles.errorText}>{serviceError}</Text> : null}
@@ -359,6 +394,8 @@ const styles = StyleSheet.create({
         height: 54,
         borderRadius: 14,
         backgroundColor: '#F1C40F',
+        flexDirection: 'row',
+        gap: 8,
         alignItems: 'center',
         justifyContent: 'center',
         marginTop: 8,
@@ -421,6 +458,17 @@ const styles = StyleSheet.create({
     resendHighlight: {
         color: '#E1B100',
         fontWeight: '700',
+    },
+    verifyingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 20,
+    },
+    verifyingText: {
+        fontSize: 14,
+        color: '#222222',
+        fontWeight: '600',
     },
     errorText: {
         color: '#B42318',

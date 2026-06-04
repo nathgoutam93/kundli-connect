@@ -1,12 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getCurrentUserKundliSummary, type KundliSummary } from '@/services/supabase-auth-service';
-import { useAppState } from '@/store/use-app-state';
+import { useKundliQuery } from '@/hooks/use-domain-data';
 
 type Planet = {
     key: string;
@@ -133,40 +132,13 @@ export function KundliChartContent({
     showBackButton?: boolean;
     showNextButton?: boolean;
 }) {
-    const { profile } = useAppState();
-    const [kundliSummary, setKundliSummary] = useState<KundliSummary | null>(null);
-    const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+    const { data: kundliSummary = null, isPending: isLoadingSummary } = useKundliQuery();
     const planets = useMemo(() => generatePlanets(), []);
     const chartImages = kundliSummary?.chartImages ?? [];
     const jsonBadges = useMemo(
         () => flattenJsonBadges(kundliSummary?.rawResponse).slice(0, 80),
         [kundliSummary?.rawResponse]
     );
-
-    useEffect(() => {
-        let isMounted = true;
-
-        getCurrentUserKundliSummary()
-            .then((summary) => {
-                if (isMounted) {
-                    setKundliSummary(summary);
-                }
-            })
-            .catch(() => {
-                if (isMounted) {
-                    setKundliSummary(null);
-                }
-            })
-            .finally(() => {
-                if (isMounted) {
-                    setIsLoadingSummary(false);
-                }
-            });
-
-        return () => {
-            isMounted = false;
-        };
-    }, []);
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>

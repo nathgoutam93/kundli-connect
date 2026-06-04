@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Image,
     KeyboardAvoidingView,
@@ -16,7 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { type ChatPreview, type CompatibilityResult, type DiscoverProfile, type LikeItem } from '@/constants/mock-data';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
+import { useChatMessagesInfiniteQuery } from '@/hooks/use-domain-data';
 
 type ActiveTab = 'chat' | 'score' | 'profile';
 
@@ -38,7 +39,7 @@ type MatchProfile = {
     compatibility?: CompatibilityResult;
 };
 
-function buildThreadFromPreview(chatId: string, chat?: ChatPreview): ChatThread {
+function buildThreadFromPreview(chatId: string, chat?: ChatPreview, messages?: ChatPreview['messages']): ChatThread {
     if (!chat) {
         return {
             id: chatId,
@@ -60,7 +61,7 @@ function buildThreadFromPreview(chatId: string, chat?: ChatPreview): ChatThread 
         id: chat.id,
         name: chat.name,
         avatarUrl: chat.avatarUrl,
-        messages: chat.messages,
+        messages: messages ?? chat.messages,
     };
 }
 
@@ -147,23 +148,36 @@ export default function ChatThreadScreen() {
     const {
         chats,
         discoverProfiles,
-        isServiceBusy,
         likes,
-        loadEarlierChatMessages,
         markChatRead,
-        refreshChats,
         sendChatMessage,
-    } = useAppState();
+    } = useAppData();
     const chatId = Array.isArray(params.chatId) ? params.chatId[0] : params.chatId;
     const chat = chats.find((item) => item.id === chatId);
+    const messagesQuery = useChatMessagesInfiniteQuery(chatId ?? '');
+    const markChatReadRef = useRef(markChatRead);
+    markChatReadRef.current = markChatRead;
+    const messages = useMemo(() => {
+        const seenMessageIds = new Set<string>();
+        return [...(messagesQuery.data?.pages ?? [])]
+            .reverse()
+            .flatMap((page) => page.messages)
+            .filter((message) => {
+                if (seenMessageIds.has(message.id)) {
+                    return false;
+                }
+                seenMessageIds.add(message.id);
+                return true;
+            });
+    }, [messagesQuery.data?.pages]);
 
     const thread = useMemo(() => {
         if (!chatId) {
             return buildThreadFromPreview('missing-chat');
         }
 
-        return buildThreadFromPreview(chatId, chat);
-    }, [chat, chatId]);
+        return buildThreadFromPreview(chatId, chat, messagesQuery.data ? messages : undefined);
+    }, [chat, chatId, messages, messagesQuery.data]);
 
     const matchProfile = useMemo(
         () => buildMatchProfile(chat, discoverProfiles, likes),
@@ -172,15 +186,9 @@ export default function ChatThreadScreen() {
 
     useEffect(() => {
         if (chatId) {
-            void refreshChats();
+            void markChatReadRef.current(chatId);
         }
-    }, [chatId, refreshChats]);
-
-    useEffect(() => {
-        if (chatId) {
-            void markChatRead(chatId);
-        }
-    }, [chatId, markChatRead]);
+    }, [chatId]);
 
     async function handleSend() {
         const text = draft.trim();
@@ -219,10 +227,12 @@ export default function ChatThreadScreen() {
 
                 {activeTab === 'chat' ? (
                     <ChatTab
-                        isLoadingEarlier={isServiceBusy}
+                        isLoadingEarlier={messagesQuery.isFetchingNextPage}
                         thread={thread}
-                        hasMoreMessages={Boolean(chat?.hasMoreMessages)}
-                        onLoadEarlier={() => (chatId ? loadEarlierChatMessages(chatId) : Promise.resolve())}
+                        hasMoreMessages={Boolean(messagesQuery.hasNextPage)}
+                        onLoadEarlier={async () => {
+                            await messagesQuery.fetchNextPage();
+                        }}
                     />
                 ) : null}
                 {activeTab === 'score' ? <ScoreTab profile={matchProfile} /> : null}

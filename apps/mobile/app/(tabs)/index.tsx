@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ProgressiveBlur } from '@/components/progressive-blur';
 import { type CompatibilityResult, type DiscoverProfile } from '@/constants/mock-data';
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 export default function DiscoverScreen() {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -26,25 +26,17 @@ export default function DiscoverScreen() {
     const {
         chats,
         discoverProfiles,
-        consumeCredit,
         creditsBalance,
         generateCompatibility,
         likedProfileIds,
         passProfile,
         profile: viewer,
-        refreshDiscoverProfiles,
         sendLike,
         isServiceBusy,
         serviceError,
         skippedProfileIds,
         subscription,
-    } = useAppState();
-
-    useEffect(() => {
-        void refreshDiscoverProfiles().catch((error) => {
-            console.warn('Failed to refresh discover profiles.', error);
-        });
-    }, [refreshDiscoverProfiles]);
+    } = useAppData();
 
     useEffect(() => {
         setCurrentIndex(0);
@@ -84,13 +76,7 @@ export default function DiscoverScreen() {
         }
     }
 
-    async function handleViewScore(profileId: string, profileName: string) {
-        const consumed = await consumeCredit(`Generated score for ${profileName}`);
-        if (!consumed) {
-            Alert.alert('Credits needed', 'Add credits or upgrade to generate match scores.');
-            return undefined;
-        }
-
+    async function handleViewScore(profileId: string) {
         try {
             return await generateCompatibility(profileId);
         } catch (error) {
@@ -149,7 +135,7 @@ export default function DiscoverScreen() {
             isRevisitingSkipped={isRevisitingSkipped}
             onPass={() => handlePass(profile.id)}
             onLike={(message) => handleLike(profile.id, message)}
-            onViewScore={() => handleViewScore(profile.id, profile.name)}
+            onViewScore={() => handleViewScore(profile.id)}
         />
     );
 }

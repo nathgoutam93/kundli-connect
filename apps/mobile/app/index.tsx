@@ -1,26 +1,14 @@
 import { Redirect } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useProfileQuery } from '@/hooks/use-domain-data';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function Index() {
-  const { hasCompletedOnboarding, hydrateAuthSession, isAuthenticated, isHydrated, isServiceBusy } = useAppState();
-  const hasHydratedAuthRef = useRef(false);
-  const [hasCheckedAuthSession, setHasCheckedAuthSession] = useState(false);
+  const { isInitializing, user } = useAuth();
+  const profile = useProfileQuery();
 
-  useEffect(() => {
-    if (!isHydrated || hasHydratedAuthRef.current) {
-      return;
-    }
-
-    hasHydratedAuthRef.current = true;
-    hydrateAuthSession()
-      .catch(() => undefined)
-      .finally(() => setHasCheckedAuthSession(true));
-  }, [hydrateAuthSession, isHydrated]);
-
-  if (!isHydrated || !hasCheckedAuthSession || isServiceBusy) {
+  if (isInitializing || (user && profile.isPending)) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color="#2D241E" />
@@ -28,11 +16,11 @@ export default function Index() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!user) {
     return <Redirect href="/(auth)/welcome" />;
   }
 
-  if (!hasCompletedOnboarding) {
+  if (!profile.data?._onboardingCompleted) {
     return <Redirect href="/(onboarding)/basics" />;
   }
 

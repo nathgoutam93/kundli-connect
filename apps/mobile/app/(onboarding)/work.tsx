@@ -13,12 +13,12 @@ import {
     View,
 } from 'react-native';
 
-import { useAppState } from '@/store/use-app-state';
+import { useAppData } from '@/hooks/use-app-data';
 
 const PREFER_NOT_TO_SAY = 'Prefer not to say';
 
 export default function WorkScreen() {
-    const { profile, updateProfile } = useAppState();
+    const { profile, updateProfile } = useAppData();
     const [workplace, setWorkplace] = useState(profile.workplace || '');
     const [jobRole, setJobRole] = useState(profile.jobRole || '');
     const [workplaceVisibleOnProfile, setWorkplaceVisibleOnProfile] = useState(
