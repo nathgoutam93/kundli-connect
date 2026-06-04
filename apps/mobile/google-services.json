@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "1039591484117",
-    "project_id": "kundli-connect",
-    "storage_bucket": "kundli-connect.firebasestorage.app"
+    "project_number": "47491477094",
+    "project_id": "kundliconnect-2134e",
+    "storage_bucket": "kundliconnect-2134e.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1039591484117:android:ceafaac691a6ed191dd05c",
+        "mobilesdk_app_id": "1:47491477094:android:af87eccaf9ab02160d87a7",
         "android_client_info": {
           "package_name": "com.nathgoutam93.KundaliKonnect"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDiDotzWTAokdXV1rQ4KA1v2KmrsJwRhaQ"
+          "current_key": "AIzaSyDXASab44egOBayBqKX1ljklxq9YNhQl3Q"
         }
       ],
       "services": {
