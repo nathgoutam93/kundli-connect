@@ -123,6 +123,43 @@ Edge Function tests (payments, guards, push): `npm run supabase:functions:test` 
 `spend_credit(text)` remains only so Edge Functions deployed before the lockdown migration keep
 working during the rollout. Once the current functions are deployed it can be dropped.
 
+## Social sign-in (Google, Meta, Apple)
+
+The app signs in with Supabase-hosted OAuth in an in-app browser (`apps/mobile/services/auth/`),
+so a provider works as soon as it is enabled in Supabase; no native SDK is required. Buttons
+appear on the welcome screen only for providers listed in the app's
+`EXPO_PUBLIC_SOCIAL_AUTH_PROVIDERS` (e.g. `google,facebook`).
+
+**Redirect URLs** (Authentication → URL Configuration → Redirect URLs): add
+`kundalikonnect://auth/callback`, plus `exp://<your-dev-machine>:8081/--/auth/callback` when
+testing in Expo Go. The provider consoles below always redirect to Supabase, never to the app.
+
+**Google**
+1. Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → *Web
+   application*. Authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`.
+2. Supabase → Authentication → Providers → Google: paste the client ID and secret, enable.
+3. Optional native account picker: also create Android/iOS client IDs, add the web client ID to
+   "Authorized Client IDs" in the Supabase Google provider, and follow the steps in
+   `apps/mobile/services/auth/index.ts`.
+
+**Meta (Facebook)**
+1. developers.facebook.com → Create app → add *Facebook Login*. Valid OAuth Redirect URI:
+   `https://<project-ref>.supabase.co/auth/v1/callback`. Request the `email` permission.
+2. Supabase → Authentication → Providers → Facebook: paste the App ID and App Secret, enable.
+3. Switch the Meta app to *Live* before release (in development mode only app roles can log in).
+
+**Apple** (needed for the iOS App Store if Google/Meta sign-in ships: guideline 4.8)
+1. Apple Developer → Identifiers: create a Services ID with Sign in with Apple, return URL
+   `https://<project-ref>.supabase.co/auth/v1/callback`; create a Sign in with Apple key.
+2. Supabase → Authentication → Providers → Apple: fill in the Services ID, team, key, enable.
+3. Add `apple` to `EXPO_PUBLIC_SOCIAL_AUTH_PROVIDERS`.
+
+Notes:
+- A social account and a phone account are separate users. Supabase links identities
+  automatically only when they share a verified email, and phone sign-ups have none.
+- New social users get their name and email prefilled in onboarding. If the email is already
+  used by another profile, the profile is created without it.
+
 ## Recommended project settings
 
 - **Asymmetric JWT signing keys** (Dashboard → Project Settings → JWT Keys). The Edge Functions

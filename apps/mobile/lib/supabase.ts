@@ -55,6 +55,9 @@ export function getSupabaseClient() {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // OAuth (Google/Facebook/Apple) returns a one-time code that is exchanged on-device
+      // with a verifier kept in secure storage, instead of putting tokens in the redirect URL.
+      flowType: 'pkce',
     },
   });
 

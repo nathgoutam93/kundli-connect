@@ -9,6 +9,7 @@ import {
 } from '@/constants/mock-data';
 import { useAccountQueries, useChatsQuery, useDiscoverProfilesQuery, useDomainMutations, useIncomingLikesQuery, useProfileQuery } from '@/hooks/use-domain-data';
 import { createPendingMessage } from '@/lib/chat-cache';
+import { signInWithSocialProvider, type SocialProvider, type SocialSignInResult } from '@/services/auth';
 import type { PurchaseOutcome } from '@/services/checkout';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
@@ -79,8 +80,14 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       await client.invalidateQueries();
       void registerCurrentUserPushToken({ requestPermission: false });
     },
-    completeGoogleLogin: async () => {
-      throw new Error('Google login is not configured.');
+    signInWithProvider: async (provider) => {
+      const result = await signInWithSocialProvider(provider);
+      if (result.status === 'success') {
+        await ensureCurrentUserProfile();
+        await client.invalidateQueries();
+        void registerCurrentUserPushToken({ requestPermission: false });
+      }
+      return result;
     },
     completeOnboarding: async () => {
       await mutations.updateProfile.mutateAsync({
@@ -158,7 +165,7 @@ export type AppData = {
   requestOtp: (phone: string) => Promise<unknown>;
   setPhoneNumber: (phone: string) => void;
   completeOtpLogin: (otp: string, phone: string) => Promise<void>;
-  completeGoogleLogin: () => Promise<void>;
+  signInWithProvider: (provider: SocialProvider) => Promise<SocialSignInResult>;
   completeOnboarding: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   generateKundli: () => Promise<unknown>;

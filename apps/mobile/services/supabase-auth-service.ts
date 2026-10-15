@@ -419,14 +419,28 @@ export async function ensureCurrentUserProfile() {
     throw new Error('No authenticated Supabase user found.');
   }
 
-  const { error } = await supabase.from('profiles').upsert(
-    {
-      id: user.id,
-      phone: user.phone || null,
-      email: user.email || null,
-    },
-    { onConflict: 'id', ignoreDuplicates: true }
+  // Social sign-ins come with a name and email; use them so onboarding starts prefilled.
+  // (The phone number is always taken from the verified session by the database.)
+  const metadata = user.user_metadata ?? {};
+  const displayName = [metadata.full_name, metadata.name].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
   );
+  const row = {
+    id: user.id,
+    email: user.email || null,
+    ...(displayName ? { display_name: displayName.trim() } : {}),
+  };
+
+  const insertProfile = (values: typeof row) =>
+    supabase.from('profiles').upsert(values, { onConflict: 'id', ignoreDuplicates: true });
+
+  let { error } = await insertProfile(row);
+
+  // profiles.email is unique; if another account already uses this address, create the
+  // profile without it rather than failing sign-in. The user can add an email in onboarding.
+  if (error?.code === '23505' && row.email) {
+    ({ error } = await insertProfile({ ...row, email: null }));
+  }
 
   if (error) {
     throw error;
