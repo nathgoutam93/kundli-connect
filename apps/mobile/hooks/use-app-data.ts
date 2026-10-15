@@ -9,6 +9,7 @@ import {
 } from '@/constants/mock-data';
 import { useAccountQueries, useChatsQuery, useDiscoverProfilesQuery, useDomainMutations, useIncomingLikesQuery, useProfileQuery } from '@/hooks/use-domain-data';
 import { createPendingMessage } from '@/lib/chat-cache';
+import type { PurchaseOutcome } from '@/services/checkout';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
 import { ensureCurrentUserProfile, registerCurrentUserPushToken } from '@/services/supabase-auth-service';
@@ -36,6 +37,7 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     account.settings.error,
     account.subscription.error,
     account.plans.error,
+    account.creditPacks.error,
     ...Object.values(mutations).map((mutation) => mutation.error),
   ].filter(Boolean);
   const serviceError = errors[0] instanceof Error ? errors[0].message : undefined;
@@ -66,6 +68,7 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     creditHistory: account.credits.data?.history ?? [],
     subscription: account.subscription.data ?? DEFAULT_SUBSCRIPTION,
     subscriptionPlans: account.plans.data ?? [],
+    creditPacks: account.creditPacks.data ?? [],
     notifications: settings.notifications,
     privacy: settings.privacy,
     requestOtp: auth.requestOtp,
@@ -110,9 +113,14 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       await mutations.sendMessage.mutateAsync({ chatId, text, pending: createPendingMessage(text) });
     },
     markChatRead: async (chatId) => { await mutations.markRead.mutateAsync(chatId); },
-    purchaseCredits: async (amount) => mutations.purchaseCredits.mutateAsync(amount),
-    purchaseSubscription: async (planId) => mutations.activateSubscription.mutateAsync(planId),
-    restorePurchases: async () => mutations.restoreSubscription.mutateAsync(),
+    purchaseCreditPack: (packId) =>
+      mutations.purchase.mutateAsync({ type: 'credit_pack', productId: packId, customer: { name: profile.name, email: profile.email, phone: profile.phoneNumber } }),
+    purchaseSubscription: (planId) =>
+      mutations.purchase.mutateAsync({ type: 'subscription', productId: planId, customer: { name: profile.name, email: profile.email, phone: profile.phoneNumber } }),
+    // Purchases are recorded server-side, so restoring means re-reading the account.
+    restorePurchases: async () => {
+      await Promise.all([account.subscription.refetch(), account.credits.refetch()]);
+    },
     updateNotifications: async (updates) =>
       mutations.updateSettings.mutateAsync({ notifications: { ...settings.notifications, ...updates }, privacy: settings.privacy }),
     updatePrivacy: async (updates) =>
@@ -144,6 +152,7 @@ export type AppData = {
   creditHistory: NonNullable<ReturnType<typeof useAccountQueries>['credits']['data']>['history'];
   subscription: NonNullable<ReturnType<typeof useAccountQueries>['subscription']['data']>;
   subscriptionPlans: NonNullable<ReturnType<typeof useAccountQueries>['plans']['data']>;
+  creditPacks: NonNullable<ReturnType<typeof useAccountQueries>['creditPacks']['data']>;
   notifications: typeof DEFAULT_NOTIFICATIONS;
   privacy: typeof DEFAULT_PRIVACY;
   requestOtp: (phone: string) => Promise<unknown>;
@@ -167,8 +176,8 @@ export type AppData = {
   dismissLike: (likeId: string) => Promise<void>;
   sendChatMessage: (chatId: string, text: string) => Promise<void>;
   markChatRead: (chatId: string) => Promise<void>;
-  purchaseCredits: (amount: number) => Promise<void>;
-  purchaseSubscription: (planId: string) => Promise<void>;
+  purchaseCreditPack: (packId: string) => Promise<PurchaseOutcome>;
+  purchaseSubscription: (planId: string) => Promise<PurchaseOutcome>;
   restorePurchases: () => Promise<void>;
   updateNotifications: (updates: Partial<typeof DEFAULT_NOTIFICATIONS>) => Promise<void>;
   updatePrivacy: (updates: Partial<typeof DEFAULT_PRIVACY>) => Promise<void>;

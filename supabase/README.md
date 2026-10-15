@@ -26,6 +26,9 @@ supabase functions deploy create-like
 supabase functions deploy reply-to-like
 supabase functions deploy send-chat-message
 supabase functions deploy send-push-notification --no-verify-jwt
+supabase functions deploy create-checkout
+supabase functions deploy confirm-checkout
+supabase functions deploy payment-webhook --no-verify-jwt
 ```
 
 Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from the repo root.
@@ -61,19 +64,59 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
   characters; opening messages max 300).
 - **Credits** are spent and refunded only by the Edge Functions through
   `spend_user_credit` / `refund_credit_transaction` (service role). Spends are serialised per
-  user, so concurrent requests cannot overdraw a balance.
+  user, so concurrent requests cannot overdraw a balance. Credits and subscriptions are only
+  granted by `fulfill_payment_order` after a verified payment.
 - **Signed-out requests** have no access to tables or functions in `public`.
 - **Edge Functions** validate ids and message lengths, and only allow scoring or liking
   profiles that are discoverable or already connected.
 
-### Test purchases
+## Payments
 
-Until real checkout ships, the test credit/subscription functions are disabled. To enable them
-in a development project only:
+Checkout is provider-agnostic:
 
-```sql
-update public.app_settings set value = 'true' where key = 'test_purchases_enabled';
+1. The app calls `create-checkout` with a product (`credit_pack` / `subscription` + id). The
+   price comes from `credit_packs` / `subscription_plans`, never from the app, and is
+   snapshotted into `payment_orders`.
+2. The server creates the order with the active provider and returns what the app needs.
+3. The app's checkout adapter for that provider shows the payment UI
+   (`apps/mobile/services/checkout/`).
+4. The app sends the result to `confirm-checkout`; the provider verifies it server-side and
+   `fulfill_payment_order` grants credits or the subscription. Providers with webhooks
+   (Razorpay) also call `payment-webhook`, and fulfilment is idempotent, so the two paths can
+   race safely.
+
+Server code: `functions/_shared/payments/` (`types.ts` is the provider interface).
+
+### Providers
+
+| `PAYMENT_PROVIDER` | Use | Secrets |
+|---|---|---|
+| `dummy` (default) | Development and testing. The app shows a "Test payment" prompt; no money moves. | `PAYMENTS_ALLOW_DUMMY=true` (otherwise purchases are disabled) |
+| `razorpay` | Production | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` |
+
+```sh
+supabase secrets set PAYMENT_PROVIDER=dummy PAYMENTS_ALLOW_DUMMY=true
 ```
+
+### Switching to Razorpay
+
+1. In the Razorpay dashboard, create API keys and a webhook pointing to
+   `https://<project-ref>.supabase.co/functions/v1/payment-webhook?provider=razorpay` with the
+   events `payment.captured`, `order.paid` and `payment.failed`.
+2. Set the secrets and switch the provider (and stop allowing the dummy):
+   ```sh
+   supabase secrets set PAYMENT_PROVIDER=razorpay RAZORPAY_KEY_ID=rzp_... \
+     RAZORPAY_KEY_SECRET=... RAZORPAY_WEBHOOK_SECRET=...
+   supabase secrets unset PAYMENTS_ALLOW_DUMMY
+   ```
+3. In the app: `npx expo install react-native-razorpay`, register the adapter in
+   `apps/mobile/services/checkout/index.ts` (the exact lines are in the comment there) and
+   ship a new build.
+4. Test with Razorpay test-mode keys first; switch to live keys when ready.
+
+Prices are placeholders: edit `credit_packs` and `subscription_plans.price_minor` (in paise).
+
+Edge Function tests (payments, guards, push): `npm run supabase:functions:test` (needs Deno).
 
 ### After deploying
 

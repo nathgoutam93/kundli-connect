@@ -11,18 +11,17 @@ import {
 } from '@/lib/chat-cache';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
+import { purchaseProduct, type CheckoutCustomer, type ProductType } from '@/services/checkout';
 import {
-  activateSubscription,
   dismissLike,
   getActivity,
   getCreditAccount,
+  getCreditPacks,
   getSettings,
   getSentLikes,
   getSubscription,
   getSubscriptionPlans,
   passProfile,
-  purchaseCredits,
-  restoreSubscription,
   updateSettings,
 } from '@/services/supabase-domain-service';
 import {
@@ -117,6 +116,7 @@ export function useAccountQueries() {
     settings: useQuery({ queryKey: queryKeys.settings(id), queryFn: getSettings, enabled: Boolean(user), staleTime: profileStaleTime }),
     subscription: useQuery({ queryKey: queryKeys.subscription(id), queryFn: getSubscription, enabled: Boolean(user), staleTime: profileStaleTime }),
     plans: useQuery({ queryKey: queryKeys.subscriptionPlans, queryFn: getSubscriptionPlans, enabled: Boolean(user), staleTime: profileStaleTime }),
+    creditPacks: useQuery({ queryKey: queryKeys.creditPacks, queryFn: getCreditPacks, enabled: Boolean(user), staleTime: profileStaleTime }),
   };
 }
 
@@ -206,17 +206,11 @@ export function useDomainMutations() {
       },
       onError: (_error, _chatId, context) => client.setQueryData(queryKeys.chatPreviews(id), context?.previous),
     }),
-    purchaseCredits: useMutation({
-      mutationFn: purchaseCredits,
-      onSuccess: () => invalidate(queryKeys.creditAccount(id), queryKeys.activity(id)),
-    }),
-    activateSubscription: useMutation({
-      mutationFn: activateSubscription,
-      onSuccess: () => invalidate(queryKeys.subscription(id), queryKeys.creditAccount(id), queryKeys.activity(id)),
-    }),
-    restoreSubscription: useMutation({
-      mutationFn: restoreSubscription,
-      onSuccess: () => invalidate(queryKeys.subscription(id)),
+    purchase: useMutation({
+      mutationFn: ({ type, productId, customer }: { type: ProductType; productId: string; customer: CheckoutCustomer }) =>
+        purchaseProduct({ type, id: productId }, customer),
+      // Refresh even after cancelled/failed attempts: a webhook may have completed it meanwhile.
+      onSettled: () => invalidate(queryKeys.creditAccount(id), queryKeys.subscription(id), queryKeys.activity(id)),
     }),
     updateSettings: useMutation({
       mutationFn: ({ notifications, privacy }: Parameters<typeof updateSettings> extends [infer A, infer B] ? { notifications: A; privacy: B } : never) =>

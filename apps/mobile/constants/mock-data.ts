@@ -141,10 +141,21 @@ export type SubscriptionPlan = {
   id: string;
   name: string;
   priceLabel: string;
+  /** Price in minor units (paise) when the plan can be bought in-app. */
+  priceMinor?: number;
+  currency: string;
   cadence: string;
   badge?: string;
   features: string[];
   creditBonus: number;
+};
+
+export type CreditPack = {
+  id: string;
+  name: string;
+  credits: number;
+  priceMinor: number;
+  currency: string;
 };
 
 export type SubscriptionState = {

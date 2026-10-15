@@ -4,6 +4,7 @@ import {
   DEFAULT_SUBSCRIPTION,
   type ActivityItem,
   type CreditHistoryItem,
+  type CreditPack,
   type NotificationSettings,
   type PrivacySettings,
   type SubscriptionPlan,
@@ -129,9 +130,20 @@ export async function getCreditAccount() {
   return { balance: Number(balance ?? 0), history };
 }
 
-export async function purchaseCredits(amount: number) {
-  const { error } = await getSupabaseClient().rpc('test_purchase_credits', { p_amount: amount });
+export async function getCreditPacks(): Promise<CreditPack[]> {
+  const { data, error } = await getSupabaseClient()
+    .from('credit_packs')
+    .select('id, name, credits, price_minor, currency')
+    .eq('active', true)
+    .order('sort_order', { ascending: true });
   if (error) throw error;
+  return (data ?? []).map((pack) => ({
+    id: pack.id,
+    name: pack.name,
+    credits: pack.credits,
+    priceMinor: pack.price_minor,
+    currency: pack.currency,
+  }));
 }
 
 export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
@@ -141,6 +153,8 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     id: plan.id,
     name: plan.name,
     priceLabel: plan.price_label,
+    priceMinor: plan.price_minor ?? undefined,
+    currency: plan.currency ?? 'INR',
     cadence: plan.cadence,
     badge: plan.badge ?? undefined,
     features: plan.features as string[],
@@ -162,14 +176,4 @@ export async function getSubscription(): Promise<SubscriptionState> {
         restoredAt: data.restored_at ?? undefined,
       }
     : DEFAULT_SUBSCRIPTION;
-}
-
-export async function activateSubscription(planId: string) {
-  const { error } = await getSupabaseClient().rpc('activate_test_subscription', { p_plan_id: planId });
-  if (error) throw error;
-}
-
-export async function restoreSubscription() {
-  const { error } = await getSupabaseClient().rpc('restore_test_subscription');
-  if (error) throw error;
 }

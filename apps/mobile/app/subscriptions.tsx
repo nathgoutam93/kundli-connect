@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
@@ -8,27 +9,49 @@ import { Card } from '@/components/ui/card';
 import { Screen } from '@/components/ui/screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { colors, fontFamily, gutter, palette, radius, space } from '@/constants/theme';
-import { type SubscriptionPlan } from '@/constants/mock-data';
+import { type CreditPack, type SubscriptionPlan } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { formatAmount, type PurchaseOutcome } from '@/services/checkout';
 
 export default function SubscriptionsScreen() {
   const {
     creditHistory,
+    creditPacks,
     creditsBalance,
-    isServiceBusy,
-    purchaseCredits,
+    purchaseCreditPack,
     purchaseSubscription,
     restorePurchases,
     subscription,
     subscriptionPlans,
   } = useAppData();
 
-  // Purchases are disabled on the server until real checkout ships; say so instead of failing silently.
-  async function attempt(action: () => Promise<void>) {
+  const [busyProductId, setBusyProductId] = useState<string | null>(null);
+  const isBusy = busyProductId !== null;
+
+  async function buy(productId: string, purchase: () => Promise<PurchaseOutcome>) {
+    setBusyProductId(productId);
     try {
-      await action();
+      const outcome = await purchase();
+      if (outcome.status === 'paid') {
+        Alert.alert('Payment successful', 'Your purchase has been added to your account.');
+      } else if (outcome.status === 'pending') {
+        Alert.alert('Payment processing', 'We will add your purchase as soon as the payment is confirmed.');
+      } else if (outcome.status === 'failed') {
+        Alert.alert('Payment failed', outcome.reason);
+      }
     } catch (error) {
       Alert.alert('Purchase unavailable', error instanceof Error ? error.message : 'Please try again later.');
+    } finally {
+      setBusyProductId(null);
+    }
+  }
+
+  async function restore() {
+    setBusyProductId('restore');
+    try {
+      await restorePurchases();
+    } finally {
+      setBusyProductId(null);
     }
   }
 
@@ -62,38 +85,42 @@ export default function SubscriptionsScreen() {
               1 credit per match score or like
             </AppText>
           </View>
-          <Button
-            label="Add 10"
-            icon="add"
-            size="md"
-            fullWidth={false}
-            disabled={isServiceBusy}
-            onPress={() => attempt(() => purchaseCredits(10))}
-          />
         </View>
+
+        {creditPacks.length > 0 ? (
+          <View style={styles.packs}>
+            {creditPacks.map((pack) => (
+              <CreditPackTile
+                key={pack.id}
+                pack={pack}
+                isLoading={busyProductId === pack.id}
+                disabled={isBusy}
+                onPress={() => buy(pack.id, () => purchaseCreditPack(pack.id))}
+              />
+            ))}
+          </View>
+        ) : null}
 
         <View style={styles.plans}>
           {subscriptionPlans.map((plan) => (
             <PlanCard
               key={plan.id}
-              isActive={subscription.planId === plan.id}
-              isBusy={isServiceBusy}
-              onSelect={() => attempt(() => purchaseSubscription(plan.id))}
+              isActive={subscription.status === 'active' && subscription.planId === plan.id}
+              isBusy={isBusy}
+              isLoading={busyProductId === plan.id}
+              onSelect={() => buy(plan.id, () => purchaseSubscription(plan.id))}
               plan={plan}
             />
           ))}
         </View>
 
         <Button
-          label={
-            subscription.restoredAt
-              ? `Restored ${new Date(subscription.restoredAt).toLocaleTimeString()}`
-              : 'Restore purchases'
-          }
+          label="Restore purchases"
           variant="ghost"
           size="md"
-          disabled={isServiceBusy}
-          onPress={() => attempt(restorePurchases)}
+          loading={busyProductId === 'restore'}
+          disabled={isBusy}
+          onPress={restore}
         />
 
         {creditHistory.length > 0 ? (
@@ -124,14 +151,51 @@ export default function SubscriptionsScreen() {
   );
 }
 
+function CreditPackTile({
+  pack,
+  isLoading,
+  disabled,
+  onPress,
+}: {
+  pack: CreditPack;
+  isLoading: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Buy ${pack.name} for ${formatAmount(pack.priceMinor, pack.currency)}`}
+      accessibilityState={{ disabled, busy: isLoading }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [styles.pack, pressed && styles.packPressed, disabled && !isLoading && styles.packDisabled]}>
+      <View style={styles.packCredits}>
+        <Ionicons name="flash" size={14} color={colors.accent} />
+        <AppText style={styles.packValue}>{pack.credits}</AppText>
+      </View>
+      <AppText variant="caption" color={colors.textMuted}>
+        credits
+      </AppText>
+      <View style={styles.packPrice}>
+        <AppText variant="subhead" color={colors.onAccent}>
+          {isLoading ? '…' : formatAmount(pack.priceMinor, pack.currency)}
+        </AppText>
+      </View>
+    </Pressable>
+  );
+}
+
 function PlanCard({
   isActive,
   isBusy,
+  isLoading,
   onSelect,
   plan,
 }: {
   isActive: boolean;
   isBusy: boolean;
+  isLoading: boolean;
   onSelect: () => void;
   plan: SubscriptionPlan;
 }) {
@@ -152,7 +216,9 @@ function PlanCard({
             ) : null}
           </View>
           <AppText>
-            <AppText style={styles.price}>{plan.priceLabel}</AppText>
+            <AppText style={styles.price}>
+              {plan.priceMinor ? formatAmount(plan.priceMinor, plan.currency) : plan.priceLabel}
+            </AppText>
             <AppText variant="subhead" color={colors.textMuted}>
               {' '}
               / {plan.cadence}
@@ -176,9 +242,10 @@ function PlanCard({
         ) : null}
       </View>
       <Button
-        label={isActive ? 'Current plan' : `Choose ${plan.name}`}
+        label={isActive ? 'Current plan · renew' : `Choose ${plan.name}`}
         variant={isActive ? 'secondary' : isFeatured ? 'primary' : 'secondary'}
-        disabled={isBusy || isActive}
+        disabled={isBusy || isActive || !plan.priceMinor}
+        loading={isLoading}
         onPress={onSelect}
       />
     </Card>
@@ -223,6 +290,47 @@ const styles = StyleSheet.create({
   },
   plans: {
     gap: space.md,
+  },
+  packs: {
+    flexDirection: 'row',
+    gap: space.sm,
+  },
+  pack: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+    paddingTop: space.md,
+    paddingBottom: space.sm,
+    paddingHorizontal: space.xs,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  packPressed: {
+    borderColor: colors.accent,
+  },
+  packDisabled: {
+    opacity: 0.5,
+  },
+  packCredits: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  packValue: {
+    fontFamily: fontFamily.display,
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.text,
+  },
+  packPrice: {
+    marginTop: space.xs,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
   },
   planCard: {
     gap: space.md,
