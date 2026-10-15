@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_LENGTH, requireText, requireUuid } from "../_shared/guards.ts";
 import { HttpError, jsonResponse, readJson, runInBackground, servePost } from "../_shared/http.ts";
 import { sendPushToUser } from "../_shared/push.ts";
 import { getAdminClient, getUserClient, rpcError } from "../_shared/supabase.ts";
@@ -11,11 +12,8 @@ type ReplyResult = {
 
 servePost(async (request) => {
   const body = await readJson<{ likeId?: string; message?: string }>(request);
-  const likeId = body.likeId?.trim();
-  const message = body.message?.trim();
-
-  if (!likeId) throw new HttpError(400, "Missing likeId");
-  if (!message) throw new HttpError(400, "Missing message");
+  const likeId = requireUuid(body.likeId, "likeId");
+  const message = requireText(body.message, "message", MAX_MESSAGE_LENGTH);
 
   // reply_to_like verifies the caller is the like's recipient and creates the chat,
   // participants, opening messages and activity atomically.

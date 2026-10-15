@@ -46,6 +46,40 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
   publication. The app subscribes once per session (`hooks/use-realtime-sync.ts`); Realtime
   applies each subscriber's RLS policies.
 
+## Security model
+
+- **Profiles are owner-only.** `profiles` and `profile_photos` can only be read by their owner.
+  Everyone else sees `profile_cards`, which returns an age instead of the birth date and never
+  phone, email, birth time/place or coordinates. Cards are visible for completed, discoverable
+  profiles and between people connected through a like.
+- **Server-controlled columns.** Direct API writes cannot change a profile's phone,
+  verification status, Kundli status or discoverability (`protect_profile_columns` trigger);
+  discoverability follows `user_settings`.
+- **No direct writes to server-owned tables.** Likes are created only by `create-like` (which
+  charges a credit and needs a match score); recipients may only move a pending like to
+  `dismissed`. Messages are written only by `send_chat_message` / `reply_to_like` (max 2000
+  characters; opening messages max 300).
+- **Credits** are spent and refunded only by the Edge Functions through
+  `spend_user_credit` / `refund_credit_transaction` (service role). Spends are serialised per
+  user, so concurrent requests cannot overdraw a balance.
+- **Signed-out requests** have no access to tables or functions in `public`.
+- **Edge Functions** validate ids and message lengths, and only allow scoring or liking
+  profiles that are discoverable or already connected.
+
+### Test purchases
+
+Until real checkout ships, the test credit/subscription functions are disabled. To enable them
+in a development project only:
+
+```sql
+update public.app_settings set value = 'true' where key = 'test_purchases_enabled';
+```
+
+### After deploying
+
+`spend_credit(text)` remains only so Edge Functions deployed before the lockdown migration keep
+working during the rollout. Once the current functions are deployed it can be dropped.
+
 ## Recommended project settings
 
 - **Asymmetric JWT signing keys** (Dashboard → Project Settings → JWT Keys). The Edge Functions

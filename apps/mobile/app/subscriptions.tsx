@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,15 @@ export default function SubscriptionsScreen() {
     subscription,
     subscriptionPlans,
   } = useAppData();
+
+  // Purchases are disabled on the server until real checkout ships; say so instead of failing silently.
+  async function attempt(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      Alert.alert('Purchase unavailable', error instanceof Error ? error.message : 'Please try again later.');
+    }
+  }
 
   return (
     <Screen starSeed={31}>
@@ -59,7 +68,7 @@ export default function SubscriptionsScreen() {
             size="md"
             fullWidth={false}
             disabled={isServiceBusy}
-            onPress={() => purchaseCredits(10)}
+            onPress={() => attempt(() => purchaseCredits(10))}
           />
         </View>
 
@@ -69,7 +78,7 @@ export default function SubscriptionsScreen() {
               key={plan.id}
               isActive={subscription.planId === plan.id}
               isBusy={isServiceBusy}
-              onSelect={() => purchaseSubscription(plan.id)}
+              onSelect={() => attempt(() => purchaseSubscription(plan.id))}
               plan={plan}
             />
           ))}
@@ -84,7 +93,7 @@ export default function SubscriptionsScreen() {
           variant="ghost"
           size="md"
           disabled={isServiceBusy}
-          onPress={restorePurchases}
+          onPress={() => attempt(restorePurchases)}
         />
 
         {creditHistory.length > 0 ? (

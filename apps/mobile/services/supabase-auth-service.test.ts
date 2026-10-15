@@ -1,5 +1,6 @@
 // Fixtures are real output of the SQL functions in supabase/migrations, captured from a local
-// database seeded with two matched users, one hidden profile and one new profile.
+// database seeded with two matched users, one hidden profile and one new profile. Cards carry
+// an age but no birth date or contact details.
 import { getChats, getDiscoverProfiles, getPendingIncomingLikes } from '@/services/supabase-auth-service';
 
 import fixtures from './__fixtures__/rpc-responses.json';
@@ -23,6 +24,7 @@ test('maps the chat, like and discover RPC payloads into app models', async () =
   }));
   const [chat] = await getChats();
   expect(chat).toMatchObject({ name: 'Bela', avatarUrl: 'https://cdn/b/1.jpg', compatibilityScore: 78, hidden: false });
+  expect(chat.participantProfile?.age).toBeGreaterThanOrEqual(28);
   expect(chat.messages[0]).toMatchObject({ senderId: 'me', status: 'read' });
   expect(chat.participantProfile?.details.find((d) => d.label === 'work')).toBeUndefined();
 
