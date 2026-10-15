@@ -1,5 +1,16 @@
 # Welcome to your Expo app 👋
 
+## Design system ("Celestial Night")
+
+The app ships a single dark theme. Don't hard-code colors, font sizes or radii in screens:
+
+- `constants/theme.ts` holds the tokens: `colors`, `type` (text styles), `space`, `radius`, `shadow`, gradients and the React Navigation theme.
+- Typography is Fraunces (display/serif) and DM Sans (body), loaded in `app/_layout.tsx` via `@expo-google-fonts`.
+- `components/ui/` contains the building blocks: `AppText`, `Button`, `IconButton`, `Card`, `ChoiceRow`/`ChoiceChip`, `TextField`, `AppSwitch`/`SwitchRow`, `SegmentedControl`, `BottomSheet`, `Avatar`, `Screen`, `ScreenHeader`, `EmptyState`, `FullScreenLoader`.
+- Shared feature components: `OnboardingStep` (layout + progress bar for every onboarding step), `ProfileView`, `CompatibilityHero`/`CompatibilityReport`, `ProfileTextField`.
+
+New screens should start from `<Screen>` and compose these pieces.
+
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
 ## Get started

@@ -1,66 +1,81 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppText } from '@/components/ui/app-text';
+import { Avatar } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { CelestialBackground } from '@/components/ui/celestial-background';
+import { IconButton } from '@/components/ui/icon-button';
+import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
+const ICEBREAKERS = ['Ask about their ideal Sunday', 'Compare moon signs', 'Plan a first coffee'];
+
 export default function MatchScreen() {
-  const insets = useSafeAreaInsets();
   const chat = useAppData((state) => state.chats.find((item) => !item.hidden) ?? state.chats[0]);
   const viewer = useAppData((state) => state.profile);
-  const viewerPhoto =
-    viewer.photoUris[0] ??
-    'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85';
-
-  if (!chat) {
-    return (
-      <View style={[styles.screen, styles.centered]}>
-        <Text style={styles.title}>It is a match</Text>
-        <Pressable style={styles.primaryButton} onPress={() => router.replace('/(tabs)/chats')}>
-          <Text style={styles.primaryText}>Open chats</Text>
-        </Pressable>
-      </View>
-    );
-  }
 
   return (
-    <View style={[styles.screen, { paddingTop: Math.max(insets.top + 24, 48), paddingBottom: insets.bottom + 28 }]}>
-      <Pressable style={styles.closeButton} onPress={() => router.back()}>
-        <Ionicons name="close" size={23} color="#FFFFFF" />
-      </Pressable>
+    <View style={styles.screen}>
+      <CelestialBackground stars={60} seed={42} />
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <IconButton
+          icon="close"
+          accessibilityLabel="Close"
+          variant="glass"
+          size={40}
+          onPress={() => router.back()}
+          style={styles.close}
+        />
 
-      <View style={styles.copy}>
-        <Text style={styles.eyebrow}>{chat.compatibilityScore}% Kundli match</Text>
-        <Text style={styles.title}>It is a Match</Text>
-        <Text style={styles.subtitle}>You and {chat.name} can now continue the conversation in Chats.</Text>
-      </View>
-
-      <View style={styles.orbs}>
-        <View style={[styles.orb, styles.orbMine]}>
-          <Image source={{ uri: viewerPhoto }} style={styles.image} contentFit="cover" />
-        </View>
-        <View style={styles.spark}>
-          <Ionicons name="sparkles" size={28} color="#2D241E" />
-        </View>
-        <View style={[styles.orb, styles.orbTheirs]}>
-          <Image source={{ uri: chat.avatarUrl }} style={styles.image} contentFit="cover" />
-        </View>
-      </View>
-
-      <View style={styles.icebreakers}>
-        {['Ask about their ideal Sunday', 'Compare moon signs', 'Plan a first coffee'].map((item) => (
-          <View key={item} style={styles.chip}>
-            <Text style={styles.chipText}>{item}</Text>
+        <View style={styles.center}>
+          <View style={styles.copy}>
+            {chat ? (
+              <AppText variant="overline" color={colors.accent} align="center">
+                ✦ {chat.compatibilityScore}% Kundli match ✦
+              </AppText>
+            ) : null}
+            <AppText align="center" style={styles.title}>
+              It’s{' '}
+              <AppText color={colors.accent} style={styles.titleAccent}>
+                written
+              </AppText>
+            </AppText>
+            {chat ? (
+              <AppText variant="callout" color={colors.textMuted} align="center">
+                You and {chat.name} liked each other. The rest of the story is yours to write.
+              </AppText>
+            ) : null}
           </View>
-        ))}
-      </View>
 
-      <Pressable style={styles.primaryButton} onPress={() => router.replace(`/chat/${chat.id}`)}>
-        <Text style={styles.primaryText}>Start chat</Text>
-        <Ionicons name="chatbubble-ellipses" size={18} color="#2D241E" />
-      </Pressable>
+          {chat ? (
+            <View style={styles.orbs}>
+              <View style={styles.orbit} />
+              <Avatar uri={viewer.photoUris[0]} name={viewer.name} size={112} ring={colors.accent} style={styles.orbLeft} />
+              <Avatar uri={chat.avatarUrl} name={chat.name} size={112} ring={colors.like} style={styles.orbRight} />
+            </View>
+          ) : null}
+
+          {chat ? (
+            <View style={styles.icebreakers}>
+              {ICEBREAKERS.map((item) => (
+                <View key={item} style={styles.chip}>
+                  <AppText variant="subhead" color={colors.textMuted}>
+                    {item}
+                  </AppText>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
+        {chat ? (
+          <Button label="Start chatting" icon="chatbubble-ellipses" onPress={() => router.replace(`/chat/${chat.id}`)} />
+        ) : (
+          <Button label="Open chats" onPress={() => router.replace('/(tabs)/chats')} />
+        )}
+      </SafeAreaView>
     </View>
   );
 }
@@ -68,112 +83,71 @@ export default function MatchScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#7D2B76',
-    paddingHorizontal: 24,
+    backgroundColor: colors.background,
   },
-  centered: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  safe: {
+    flex: 1,
+    paddingHorizontal: gutter,
+    paddingBottom: space.md,
   },
-  closeButton: {
-    alignItems: 'center',
+  close: {
     alignSelf: 'flex-end',
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderRadius: 22,
-    height: 44,
+    marginTop: space.xs,
+  },
+  center: {
+    flex: 1,
     justifyContent: 'center',
-    width: 44,
+    gap: space.xxl,
   },
   copy: {
-    alignItems: 'center',
-    marginTop: 28,
-  },
-  eyebrow: {
-    color: '#F6D36B',
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginBottom: 10,
-    textTransform: 'uppercase',
+    gap: space.sm,
   },
   title: {
-    color: '#FFFFFF',
-    fontSize: 40,
-    fontWeight: '900',
-    textAlign: 'center',
+    fontFamily: fontFamily.display,
+    fontSize: 52,
+    lineHeight: 58,
+    letterSpacing: -1,
+    color: colors.text,
   },
-  subtitle: {
-    color: '#F0E7F0',
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 23,
-    marginTop: 12,
-    textAlign: 'center',
+  titleAccent: {
+    fontFamily: fontFamily.displayItalic,
+    fontSize: 52,
+    lineHeight: 58,
   },
   orbs: {
-    alignItems: 'center',
+    height: 170,
     flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 42,
-  },
-  orb: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#F6D36B',
-    borderRadius: 72,
-    borderWidth: 4,
-    height: 144,
-    overflow: 'hidden',
-    width: 144,
-  },
-  orbMine: {
-    marginRight: -14,
-  },
-  orbTheirs: {
-    marginLeft: -14,
-  },
-  image: {
-    height: '100%',
-    width: '100%',
-  },
-  spark: {
     alignItems: 'center',
-    backgroundColor: '#F6D36B',
-    borderRadius: 28,
-    height: 56,
     justifyContent: 'center',
-    zIndex: 2,
-    width: 56,
+  },
+  orbit: {
+    position: 'absolute',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  orbLeft: {
+    marginRight: -18,
+    transform: [{ rotate: '-6deg' }],
+  },
+  orbRight: {
+    marginLeft: -18,
+    transform: [{ rotate: '6deg' }],
   },
   icebreakers: {
-    gap: 10,
-    marginTop: 40,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: space.xs,
   },
   chip: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 8,
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  chipText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  primaryButton: {
-    alignItems: 'center',
-    backgroundColor: '#F6D36B',
-    borderRadius: 8,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    marginTop: 'auto',
-    minHeight: 54,
-  },
-  primaryText: {
-    color: '#2D241E',
-    fontSize: 16,
-    fontWeight: '900',
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.glass,
   },
 });

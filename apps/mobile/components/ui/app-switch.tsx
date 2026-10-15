@@ -1,4 +1,4 @@
-import { StyleSheet, Switch, View, type SwitchProps } from 'react-native';
+import { Platform, StyleSheet, Switch, View, type SwitchProps } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
 import { colors, space } from '@/constants/theme';
@@ -11,6 +11,8 @@ export function AppSwitch({ value, ...rest }: SwitchProps) {
       trackColor={{ false: colors.border, true: colors.accent }}
       thumbColor={value ? colors.text : colors.textMuted}
       ios_backgroundColor={colors.border}
+      // react-native-web ignores thumbColor for the "on" state and needs its own prop.
+      {...(Platform.OS === 'web' ? ({ activeThumbColor: colors.text } as object) : null)}
       {...rest}
     />
   );

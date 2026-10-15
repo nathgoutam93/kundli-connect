@@ -1,25 +1,32 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
+import { ProfileView } from '@/components/profile-view';
+import { AppText } from '@/components/ui/app-text';
+import { Avatar } from '@/components/ui/avatar';
+import { BottomSheet } from '@/components/ui/bottom-sheet';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { IconButton } from '@/components/ui/icon-button';
+import { Screen } from '@/components/ui/screen';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { type ChatPreview, type CompatibilityResult, type DiscoverProfile, type LikeItem } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 import { useChatMessagesInfiniteQuery } from '@/hooks/use-domain-data';
 
 type ActiveTab = 'chat' | 'score' | 'profile';
+
+const THREAD_TABS = [
+    { value: 'chat', label: 'Chat' },
+    { value: 'score', label: 'Match' },
+    { value: 'profile', label: 'Profile' },
+] as const;
+
+const CHAT_ACTIONS = ['We met', 'Hide', 'Unmatch'] as const;
 
 type ChatThread = {
     id: string;
@@ -44,8 +51,7 @@ function buildThreadFromPreview(chatId: string, chat?: ChatPreview, messages?: C
         return {
             id: chatId,
             name: 'Match',
-            avatarUrl:
-                'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=180&q=80',
+            avatarUrl: '',
             messages: [
                 {
                     id: `${chatId}-missing`,
@@ -201,29 +207,40 @@ export default function ChatThreadScreen() {
     }
 
     return (
-        <>
+        <Screen starSeed={13}>
             <Stack.Screen options={{ headerShown: false }} />
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={styles.screen}>
-                <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 20) }]}>
-                    <Pressable accessibilityLabel="Back" hitSlop={12} onPress={() => router.back()}>
-                        <Ionicons name="chevron-back" size={29} color="#1F1B18" />
-                    </Pressable>
-                    <Text style={styles.headerTitle}>{thread.name}</Text>
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={styles.flex}>
+                <View style={styles.header}>
+                    <IconButton icon="chevron-back" accessibilityLabel="Back" size={40} onPress={() => router.back()} />
                     <Pressable
-                        accessibilityLabel="Open chat actions"
-                        hitSlop={12}
-                        onPress={() => setIsMenuOpen(true)}>
-                        <Ionicons name="ellipsis-horizontal" size={25} color="#1F1B18" />
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${thread.name}'s profile`}
+                        onPress={() => setActiveTab('profile')}
+                        style={styles.headerIdentity}>
+                        <Avatar uri={thread.avatarUrl} name={thread.name} size={36} />
+                        <View style={styles.headerText}>
+                            <AppText variant="headline" numberOfLines={1}>
+                                {thread.name}
+                            </AppText>
+                            {matchProfile.compatibilityScore ? (
+                                <AppText variant="caption" color={colors.accent}>
+                                    ✦ {matchProfile.compatibilityScore}% Kundli match
+                                </AppText>
+                            ) : null}
+                        </View>
                     </Pressable>
+                    <IconButton
+                        icon="ellipsis-horizontal"
+                        accessibilityLabel="Open chat actions"
+                        size={40}
+                        variant="plain"
+                        onPress={() => setIsMenuOpen(true)}
+                    />
                 </View>
 
-                <View style={styles.tabs}>
-                    <ThreadTab activeTab={activeTab} label="Chat" tab="chat" onPress={setActiveTab} />
-                    <ThreadTab activeTab={activeTab} label="Score" tab="score" onPress={setActiveTab} />
-                    <ThreadTab activeTab={activeTab} label="Profile" tab="profile" onPress={setActiveTab} />
-                </View>
+                <SegmentedControl options={THREAD_TABS} value={activeTab} onChange={setActiveTab} style={styles.tabs} />
 
                 {activeTab === 'chat' ? (
                     <ChatTab
@@ -239,68 +256,51 @@ export default function ChatThreadScreen() {
                 {activeTab === 'profile' ? <ProfileTab profile={matchProfile} /> : null}
 
                 {activeTab === 'chat' ? (
-                    <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom + 8, 18) }]}>
+                    <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, space.sm) + space.xs }]}>
                         <TextInput
-                            placeholder="Send a message"
-                            placeholderTextColor="#B4ACA6"
+                            placeholder="Write a message"
+                            placeholderTextColor={colors.textFaint}
+                            selectionColor={colors.accent}
                             value={draft}
                             onChangeText={setDraft}
                             onSubmitEditing={handleSend}
+                            multiline
                             style={styles.composer}
                         />
-                        <Pressable accessibilityLabel="Send message" onPress={handleSend} style={styles.micButton}>
-                            <Ionicons name={draft.trim() ? 'send' : 'mic'} size={22} color="#FFFFFF" />
-                        </Pressable>
+                        <IconButton
+                            icon="arrow-up"
+                            accessibilityLabel="Send message"
+                            variant="accent"
+                            size={44}
+                            iconSize={22}
+                            disabled={!draft.trim()}
+                            onPress={handleSend}
+                        />
                     </View>
                 ) : null}
             </KeyboardAvoidingView>
 
-            <Modal transparent animationType="fade" visible={isMenuOpen} onRequestClose={() => setIsMenuOpen(false)}>
-                <Pressable style={styles.modalOverlay} onPress={() => setIsMenuOpen(false)}>
-                    <View style={[styles.actionSheet, { paddingBottom: Math.max(insets.bottom + 10, 18) }]}>
-                        <Pressable style={styles.actionItem}>
-                            <Text style={styles.actionText}>We Met</Text>
+            <BottomSheet visible={isMenuOpen} onClose={() => setIsMenuOpen(false)}>
+                <View style={styles.actionList}>
+                    {CHAT_ACTIONS.map((action) => (
+                        <Pressable
+                            key={action}
+                            accessibilityRole="button"
+                            style={({ pressed }) => [styles.actionItem, pressed && styles.actionItemPressed]}>
+                            <AppText variant="bodyStrong">{action}</AppText>
                         </Pressable>
-                        <Pressable style={styles.actionItem}>
-                            <Text style={styles.actionText}>Hide</Text>
-                        </Pressable>
-                        <Pressable style={styles.actionItem}>
-                            <Text style={styles.actionText}>Unmatch</Text>
-                        </Pressable>
-                        <Pressable style={styles.actionItem}>
-                            <Text style={styles.reportText}>Report</Text>
-                        </Pressable>
-                        <Pressable style={styles.cancelItem} onPress={() => setIsMenuOpen(false)}>
-                            <Text style={styles.actionText}>Cancel</Text>
-                        </Pressable>
-                    </View>
-                </Pressable>
-            </Modal>
-        </>
-    );
-}
-
-function ThreadTab({
-    activeTab,
-    label,
-    onPress,
-    tab,
-}: {
-    activeTab: ActiveTab;
-    label: string;
-    onPress: (tab: ActiveTab) => void;
-    tab: ActiveTab;
-}) {
-    const isActive = activeTab === tab;
-
-    return (
-        <Pressable
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isActive }}
-            onPress={() => onPress(tab)}
-            style={isActive ? styles.tabActive : styles.tab}>
-            <Text style={isActive ? styles.tabTextActive : styles.tabText}>{label}</Text>
-        </Pressable>
+                    ))}
+                    <Pressable
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.actionItem, pressed && styles.actionItemPressed]}>
+                        <AppText variant="bodyStrong" color={colors.danger}>
+                            Report
+                        </AppText>
+                    </Pressable>
+                </View>
+                <Button label="Cancel" variant="secondary" onPress={() => setIsMenuOpen(false)} />
+            </BottomSheet>
+        </Screen>
     );
 }
 
@@ -321,570 +321,186 @@ function ChatTab({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled">
             {hasMoreMessages ? (
-                <Pressable
-                    accessibilityRole="button"
-                    disabled={isLoadingEarlier}
+                <Button
+                    label={isLoadingEarlier ? 'Loading' : 'Earlier messages'}
+                    variant="ghost"
+                    size="sm"
+                    fullWidth={false}
+                    loading={isLoadingEarlier}
                     onPress={onLoadEarlier}
-                    style={({ pressed }: { pressed: boolean }) => [
-                        styles.loadEarlierButton,
-                        pressed && styles.loadEarlierPressed,
-                        isLoadingEarlier && styles.loadEarlierDisabled,
-                    ]}>
-                    <Text style={styles.loadEarlierText}>{isLoadingEarlier ? 'Loading...' : 'Earlier messages'}</Text>
-                </Pressable>
+                    style={styles.loadEarlier}
+                />
             ) : null}
             {thread.messages.length > 0 ? (
-                thread.messages.map((message) => (
-                    <View
-                        key={message.id}
-                        style={[styles.messageRow, message.senderId === 'me' && styles.messageRowMine]}>
-                        {message.senderId !== 'me' ? <Image source={{ uri: thread.avatarUrl }} style={styles.messageAvatar} /> : null}
-                        <View style={[styles.bubble, message.senderId === 'me' ? styles.bubbleMine : styles.bubbleTheirs]}>
-                            <Text style={[styles.bubbleText, message.senderId === 'me' && styles.bubbleTextMine]}>
-                                {message.text}
-                            </Text>
-                            {message.senderId === 'me' ? (
-                                <Text style={styles.statusText}>{message.seenAt ? 'Seen' : 'Sent'}</Text>
-                            ) : null}
+                thread.messages.map((message) => {
+                    const isMine = message.senderId === 'me';
+
+                    return (
+                        <View key={message.id} style={[styles.messageRow, isMine && styles.messageRowMine]}>
+                            {!isMine ? <Avatar uri={thread.avatarUrl} name={thread.name} size={28} /> : null}
+                            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                                <AppText variant="callout" color={isMine ? colors.onAccent : colors.text}>
+                                    {message.text}
+                                </AppText>
+                                {isMine ? (
+                                    <AppText variant="caption" color={colors.onAccent} style={styles.statusText}>
+                                        {message.seenAt ? 'Seen' : 'Sent'}
+                                    </AppText>
+                                ) : null}
+                            </View>
                         </View>
-                    </View>
-                ))
+                    );
+                })
             ) : (
-                <View style={styles.emptyPanel}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={30} color="#8C8580" />
-                    <Text style={styles.emptyTitle}>Start the conversation</Text>
-                </View>
+                <EmptyState
+                    icon="chatbubble-ellipses-outline"
+                    title="Start the conversation"
+                    message={`Your charts brought you here. Say hello to ${thread.name}.`}
+                />
             )}
         </ScrollView>
     );
 }
 
 function ScoreTab({ profile }: { profile: MatchProfile }) {
+    const { profile: viewer } = useAppData();
     const rows = buildScoreRows(profile);
-    const summary = profile.compatibility?.raw?.conclusion?.match_report ??
+    const summary = getMatchReport(profile.compatibility) ??
         profile.compatibility?.summary ??
         'Your charts show a balanced opening for conversation, practical timing, and steady emotional rhythm.';
-    const yogas = profile.compatibility?.yogas ?? ['Hamsa', 'Dhan'];
-    const doshas = profile.compatibility?.doshas ?? ['Kendrum'];
+    const yogas = profile.compatibility?.yogas ?? [];
+    const doshas = profile.compatibility?.doshas ?? [];
 
     return (
-        <ScrollView contentContainerStyle={styles.scoreContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.scoreHero}>
-                <Image source={{ uri: profile.photos[0] }} style={styles.scoreAvatar} />
-                <View style={styles.scoreRing}>
-                    <Text style={styles.scorePercent}>{profile.compatibilityScore}%</Text>
-                    <Text style={styles.scoreLabel}>Kundli Match</Text>
-                </View>
-            </View>
-
-            <View style={styles.scoreCard}>
-                <View style={styles.scoreCardHeader}>
-                    <View style={styles.scoreIcon}>
-                        <Ionicons name="sparkles" size={22} color="#FFFFFF" />
-                    </View>
-                    <View style={styles.scoreHeaderCopy}>
-                        <Text style={styles.scoreTitle}>Match Analysis</Text>
-                        <Text style={styles.scoreSummary}>{summary}</Text>
-                    </View>
-                </View>
-
-                <Text style={styles.scoreGroupTitle}>Yogas</Text>
-                <View style={styles.chipRow}>
-                    {yogas.map((item) => (
-                        <View key={item} style={styles.goldChip}>
-                            <Text style={styles.goldChipText}>{item}</Text>
-                        </View>
-                    ))}
-                </View>
-
-                <Text style={[styles.scoreGroupTitle, styles.doshaTitle]}>Doshas</Text>
-                <View style={styles.chipRow}>
-                    {doshas.map((item) => (
-                        <View key={item} style={styles.redChip}>
-                            <Text style={styles.redChipText}>{item}</Text>
-                        </View>
-                    ))}
-                </View>
-
-                <View style={styles.scoreDivider} />
-                {rows.map((row) => (
-                    <View key={row.label} style={styles.scoreRow}>
-                        <View style={styles.scoreRowHeader}>
-                            <Text style={styles.scoreRowLabel}>{row.label}</Text>
-                            <Text style={styles.scoreRowValue}>{row.value}%</Text>
-                        </View>
-                        <View style={styles.scoreTrack}>
-                            <View style={[styles.scoreFill, { width: `${row.value}%` }]} />
-                        </View>
-                    </View>
-                ))}
-            </View>
+        <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
+            <CompatibilityHero
+                score={profile.compatibilityScore}
+                viewerName={viewer.name}
+                viewerPhotoUri={viewer.photoUris[0]}
+                partnerName={profile.name}
+                partnerPhotoUri={profile.photos[0]}
+            />
+            <CompatibilityReport summary={summary} yogas={yogas} doshas={doshas} breakdown={rows} />
         </ScrollView>
     );
 }
 
 function ProfileTab({ profile }: { profile: MatchProfile }) {
-    const [heroPhoto, ...morePhotos] = profile.photos;
-
     return (
-        <ScrollView contentContainerStyle={styles.profileContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.profileHero}>
-                {heroPhoto ? (
-                    <Image source={{ uri: heroPhoto }} style={styles.profileHeroImage} />
-                ) : (
-                    <View style={styles.profileHeroPlaceholder}>
-                        <Ionicons name="person" size={54} color="#FFFFFF" />
-                    </View>
-                )}
-            </View>
-
-            <View style={styles.profileCopy}>
-                <Text style={styles.profileName}>
-                    {profile.name}
-                    {profile.age ? `, ${profile.age}` : ''}
-                </Text>
-                <Text style={styles.profileLocation}>{profile.location}</Text>
-                <Text style={styles.profileBio}>{profile.bio}</Text>
-            </View>
-
-            {profile.details.length > 0 ? (
-                <View style={styles.profileDetails}>
-                    {profile.details.map((item) => (
-                        <View key={item.label} style={styles.profileDetailRow}>
-                            <Ionicons name={item.icon} size={22} color="#FCAD00" />
-                            <Text style={styles.profileDetailText}>{item.text}</Text>
-                        </View>
-                    ))}
-                </View>
-            ) : null}
-
-            {morePhotos.map((photo) => (
-                <Image key={photo} source={{ uri: photo }} style={styles.profileInlinePhoto} />
-            ))}
+        <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
+            <ProfileView profile={profile} />
         </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
-    screen: {
+    flex: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
     },
     header: {
-        alignItems: 'center',
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingBottom: 12,
-        paddingHorizontal: 20,
+        alignItems: 'center',
+        gap: space.sm,
+        paddingHorizontal: space.md,
+        paddingTop: space.xs,
+        paddingBottom: space.sm,
     },
-    headerTitle: {
-        color: '#171412',
-        fontSize: 20,
-        fontWeight: '800',
-        letterSpacing: 0,
+    headerIdentity: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.sm,
+    },
+    headerText: {
+        flex: 1,
     },
     tabs: {
-        borderBottomColor: '#ECE8E4',
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        flexDirection: 'row',
-        height: 46,
-    },
-    tabActive: {
-        alignItems: 'center',
-        borderBottomColor: '#171412',
-        borderBottomWidth: 2,
-        flex: 1,
-        justifyContent: 'center',
-    },
-    tab: {
-        alignItems: 'center',
-        flex: 1,
-        justifyContent: 'center',
-    },
-    tabTextActive: {
-        color: '#171412',
-        fontSize: 14,
-        fontWeight: '700',
-    },
-    tabText: {
-        color: '#8C8580',
-        fontSize: 14,
-        fontWeight: '600',
+        marginHorizontal: gutter,
+        marginBottom: space.xs,
     },
     messages: {
-        paddingHorizontal: 22,
-        paddingTop: 46,
-        paddingBottom: 28,
+        flexGrow: 1,
+        paddingHorizontal: space.md,
+        paddingVertical: space.md,
+        gap: space.xs,
     },
-    emptyPanel: {
-        alignItems: 'center',
-        borderColor: '#EEEAE6',
-        borderRadius: 8,
-        borderWidth: 1,
-        marginTop: 20,
-        paddingHorizontal: 20,
-        paddingVertical: 28,
-    },
-    emptyTitle: {
-        color: '#2A2521',
-        fontSize: 16,
-        fontWeight: '800',
-        marginTop: 10,
-    },
-    loadEarlierButton: {
-        alignItems: 'center',
+    loadEarlier: {
         alignSelf: 'center',
-        borderColor: '#E2DDD8',
-        borderRadius: 8,
-        borderWidth: 1,
-        marginBottom: 18,
-        minHeight: 38,
-        paddingHorizontal: 16,
-        paddingVertical: 9,
-    },
-    loadEarlierPressed: {
-        opacity: 0.65,
-    },
-    loadEarlierDisabled: {
-        opacity: 0.5,
-    },
-    loadEarlierText: {
-        color: '#4A403A',
-        fontSize: 13,
-        fontWeight: '800',
     },
     messageRow: {
-        alignItems: 'flex-end',
         flexDirection: 'row',
-        marginTop: 12,
+        alignItems: 'flex-end',
+        gap: space.xs,
+        maxWidth: '82%',
     },
     messageRowMine: {
-        justifyContent: 'flex-end',
-    },
-    messageAvatar: {
-        borderRadius: 19,
-        height: 38,
-        marginRight: 10,
-        width: 38,
+        alignSelf: 'flex-end',
     },
     bubble: {
-        borderRadius: 7,
-        maxWidth: '82%',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        borderRadius: radius.lg,
+        gap: 2,
+        flexShrink: 1,
     },
     bubbleTheirs: {
-        backgroundColor: '#F4F3F2',
+        backgroundColor: colors.surfaceRaised,
+        borderBottomLeftRadius: radius.xs / 2,
     },
     bubbleMine: {
-        backgroundColor: '#7D2B76',
-        borderBottomRightRadius: 2,
-    },
-    bubbleText: {
-        color: '#2A2521',
-        fontSize: 17,
-        letterSpacing: 0,
-        lineHeight: 22,
-    },
-    bubbleTextMine: {
-        color: '#FFFFFF',
+        backgroundColor: colors.accent,
+        borderBottomRightRadius: radius.xs / 2,
     },
     statusText: {
         alignSelf: 'flex-end',
-        color: 'rgba(255, 255, 255, 0.74)',
-        fontSize: 11,
-        fontWeight: '700',
-        marginTop: 4,
-    },
-    scoreContent: {
-        paddingHorizontal: 22,
-        paddingTop: 24,
-        paddingBottom: 34,
-    },
-    scoreHero: {
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    scoreAvatar: {
-        backgroundColor: '#EFEAE5',
-        borderColor: '#FFFFFF',
-        borderRadius: 42,
-        borderWidth: 3,
-        height: 84,
-        marginBottom: -16,
-        width: 84,
-        zIndex: 2,
-    },
-    scoreRing: {
-        alignItems: 'center',
-        borderBottomColor: '#FF4245',
-        borderLeftColor: '#F4B000',
-        borderRadius: 40,
-        borderRightColor: '#FF4245',
-        borderTopColor: '#F4B000',
-        borderWidth: 4,
-        minWidth: 190,
-        paddingHorizontal: 30,
-        paddingBottom: 18,
-        paddingTop: 28,
-    },
-    scorePercent: {
-        color: '#F4AA00',
-        fontSize: 42,
-        fontWeight: '900',
-        lineHeight: 48,
-    },
-    scoreLabel: {
-        color: '#2D2926',
-        fontSize: 16,
-        fontWeight: '800',
-    },
-    scoreCard: {
-        borderColor: '#F3D99A',
-        borderRadius: 18,
-        borderWidth: 1,
-        padding: 18,
-    },
-    scoreCardHeader: {
-        flexDirection: 'row',
-        gap: 12,
-        marginBottom: 20,
-    },
-    scoreIcon: {
-        alignItems: 'center',
-        backgroundColor: '#F8BE1C',
-        borderRadius: 22,
-        height: 44,
-        justifyContent: 'center',
-        width: 44,
-    },
-    scoreHeaderCopy: {
-        flex: 1,
-    },
-    scoreTitle: {
-        color: '#27211E',
-        fontSize: 18,
-        fontWeight: '900',
-        marginBottom: 5,
-    },
-    scoreSummary: {
-        color: '#302B27',
-        fontSize: 14,
-        fontWeight: '500',
-        lineHeight: 20,
-    },
-    scoreGroupTitle: {
-        color: '#F0A000',
-        fontSize: 15,
-        fontWeight: '900',
-        marginBottom: 10,
-    },
-    doshaTitle: {
-        color: '#FF4D58',
-        marginTop: 16,
-    },
-    chipRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    goldChip: {
-        borderColor: '#F4AA00',
-        borderRadius: 18,
-        borderWidth: 1,
-        paddingHorizontal: 11,
-        paddingVertical: 8,
-    },
-    goldChipText: {
-        color: '#F0A000',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    redChip: {
-        borderColor: '#FF4D58',
-        borderRadius: 18,
-        borderWidth: 1,
-        paddingHorizontal: 11,
-        paddingVertical: 8,
-    },
-    redChipText: {
-        color: '#FF4D58',
-        fontSize: 13,
-        fontWeight: '800',
-    },
-    scoreDivider: {
-        backgroundColor: '#EEE9E3',
-        height: 1,
-        marginBottom: 18,
-        marginTop: 22,
-    },
-    scoreRow: {
-        marginBottom: 15,
-    },
-    scoreRowHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 7,
-    },
-    scoreRowLabel: {
-        color: '#2F2925',
-        fontSize: 14,
-        fontWeight: '800',
-    },
-    scoreRowValue: {
-        color: '#F0A000',
-        fontSize: 14,
-        fontWeight: '900',
-    },
-    scoreTrack: {
-        backgroundColor: '#F4EFE8',
-        borderRadius: 4,
-        height: 8,
-        overflow: 'hidden',
-    },
-    scoreFill: {
-        backgroundColor: '#F8BE1C',
-        borderRadius: 4,
-        height: '100%',
-    },
-    profileContent: {
-        paddingBottom: 34,
-    },
-    profileHero: {
-        backgroundColor: '#2D241E',
-        height: 360,
-    },
-    profileHeroImage: {
-        height: '100%',
-        width: '100%',
-    },
-    profileHeroPlaceholder: {
-        alignItems: 'center',
-        backgroundColor: '#C9A35D',
-        flex: 1,
-        justifyContent: 'center',
-    },
-    profileCopy: {
-        backgroundColor: '#FFFFFF',
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
-        marginTop: -30,
-        paddingHorizontal: 26,
-        paddingTop: 30,
-    },
-    profileName: {
-        color: '#171412',
-        fontSize: 30,
-        fontWeight: '900',
-        textAlign: 'center',
-    },
-    profileLocation: {
-        color: '#8A7B70',
-        fontSize: 12,
-        fontWeight: '900',
-        letterSpacing: 2,
-        marginTop: 7,
-        textAlign: 'center',
-        textTransform: 'uppercase',
-    },
-    profileBio: {
-        color: '#4B4540',
-        fontSize: 16,
-        lineHeight: 23,
-        marginTop: 18,
-        textAlign: 'center',
-    },
-    profileDetails: {
-        borderColor: '#FFE08B',
-        borderRadius: 18,
-        borderWidth: 1,
-        marginHorizontal: 26,
-        marginTop: 20,
-        overflow: 'hidden',
-    },
-    profileDetailRow: {
-        alignItems: 'center',
-        borderBottomColor: '#F5E2BA',
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        flexDirection: 'row',
-        gap: 14,
-        minHeight: 50,
-        paddingHorizontal: 16,
-    },
-    profileDetailText: {
-        color: '#272320',
-        flex: 1,
-        fontSize: 15,
-        lineHeight: 20,
-    },
-    profileInlinePhoto: {
-        aspectRatio: 0.78,
-        backgroundColor: '#EFEAE5',
-        borderRadius: 18,
-        marginHorizontal: 26,
-        marginTop: 18,
-        overflow: 'hidden',
-        width: 'auto',
+        opacity: 0.7,
     },
     composerWrap: {
-        alignItems: 'center',
-        borderTopColor: '#F1EEEB',
-        borderTopWidth: StyleSheet.hairlineWidth,
         flexDirection: 'row',
-        gap: 10,
-        paddingHorizontal: 20,
-        paddingTop: 12,
+        alignItems: 'flex-end',
+        gap: space.xs,
+        paddingHorizontal: space.md,
+        paddingTop: space.xs,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
+        backgroundColor: colors.backgroundDeep,
     },
     composer: {
-        borderColor: '#ECE8E5',
-        borderRadius: 23,
+        flex: 1,
+        minHeight: 44,
+        maxHeight: 120,
+        paddingHorizontal: space.md,
+        paddingTop: 11,
+        paddingBottom: 11,
+        borderRadius: 22,
         borderWidth: 1,
-        color: '#171412',
-        flex: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceSunken,
+        color: colors.text,
+        fontFamily: fontFamily.body,
         fontSize: 16,
-        minHeight: 46,
-        paddingHorizontal: 22,
+        ...Platform.select({ web: { outlineWidth: 0 } }),
     },
-    micButton: {
-        alignItems: 'center',
-        backgroundColor: '#DDDAD7',
-        borderRadius: 24,
-        height: 48,
-        justifyContent: 'center',
-        width: 48,
+    tabContent: {
+        paddingHorizontal: gutter,
+        paddingTop: space.sm,
+        paddingBottom: space.xxl,
+        gap: space.md,
     },
-    modalOverlay: {
-        backgroundColor: 'rgba(0, 0, 0, 0.36)',
-        flex: 1,
-        justifyContent: 'flex-end',
-    },
-    actionSheet: {
-        paddingHorizontal: 18,
+    actionList: {
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        overflow: 'hidden',
     },
     actionItem: {
+        minHeight: 54,
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        borderBottomColor: '#E7E1DD',
+        justifyContent: 'center',
         borderBottomWidth: StyleSheet.hairlineWidth,
-        minHeight: 54,
-        justifyContent: 'center',
+        borderBottomColor: colors.border,
     },
-    actionText: {
-        color: '#2A2521',
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    reportText: {
-        color: '#D45F55',
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    cancelItem: {
-        alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 8,
-        justifyContent: 'center',
-        marginTop: 8,
-        minHeight: 54,
+    actionItemPressed: {
+        backgroundColor: colors.surfaceRaised,
     },
 });

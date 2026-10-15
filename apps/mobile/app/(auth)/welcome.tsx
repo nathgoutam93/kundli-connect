@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
-import { colors, fontFamily, gutter, palette, space } from '@/constants/theme';
+import { artworkScrimGradient, colors, fontFamily, gutter, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
 export default function WelcomeScreen() {
@@ -30,7 +30,7 @@ export default function WelcomeScreen() {
       resizeMode="cover"
       style={styles.background}>
       <LinearGradient
-        colors={['rgba(7, 5, 26, 0.35)', 'rgba(7, 5, 26, 0.2)', 'rgba(14, 11, 31, 0.92)', palette.midnight950]}
+        colors={artworkScrimGradient}
         locations={[0, 0.3, 0.62, 1]}
         style={StyleSheet.absoluteFill}
       />

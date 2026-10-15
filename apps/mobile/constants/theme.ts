@@ -50,7 +50,7 @@ export const colors = {
 
   accent: palette.gold500,
   accentPressed: palette.gold600,
-  accentSoft: 'rgba(233, 185, 73, 0.14)',
+  accentSoft: 'rgba(233, 185, 73, 0.10)',
   accentLine: 'rgba(233, 185, 73, 0.38)',
   onAccent: '#1A1206',
 
@@ -74,6 +74,17 @@ export const colors = {
 
 /** Gradient stops for the app canvas, top to bottom. */
 export const backgroundGradient = ['#1B1440', palette.midnight900, palette.midnight950] as const;
+
+/** Fades a photo into the canvas so text laid over its lower half stays legible. */
+export const photoScrimGradient = ['transparent', 'rgba(7, 5, 26, 0.35)', palette.midnight950] as const;
+
+/** Heavier scrim for full-screen artwork behind a headline and buttons. */
+export const artworkScrimGradient = [
+  'rgba(7, 5, 26, 0.35)',
+  'rgba(7, 5, 26, 0.2)',
+  'rgba(14, 11, 31, 0.92)',
+  palette.midnight950,
+] as const;
 
 export const fontFamily = {
   display: 'Fraunces_500Medium',

@@ -142,7 +142,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundDeep,
     borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 6,
   },
   tabLabel: {
     fontFamily: fontFamily.bodyMedium,
@@ -159,7 +158,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.transparent,
     position: 'absolute',
-    top: -9,
+    top: -7,
   },
   indicatorActive: {
     backgroundColor: colors.accent,

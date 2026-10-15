@@ -27,6 +27,8 @@ const VARIANTS: Record<IconButtonVariant, { bg: string; border: string; fg: stri
   plain: { bg: colors.transparent, border: colors.transparent, fg: colors.text },
 };
 
+const DISABLED = { bg: colors.surfaceRaised, border: colors.border, fg: colors.textFaint };
+
 export function IconButton({
   icon,
   variant = 'surface',
@@ -38,7 +40,8 @@ export function IconButton({
   children,
   ...rest
 }: IconButtonProps) {
-  const tone = VARIANTS[variant];
+  // Filled variants go neutral when disabled instead of dimming the brand color.
+  const tone = disabled && (variant === 'accent' || variant === 'like') ? DISABLED : VARIANTS[variant];
 
   return (
     <Pressable
@@ -55,7 +58,7 @@ export function IconButton({
           borderColor: tone.border,
         },
         pressed && styles.pressed,
-        disabled && styles.disabled,
+        disabled && tone !== DISABLED && styles.disabled,
         style,
       ]}
       {...rest}>

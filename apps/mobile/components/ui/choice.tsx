@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   },
   rowSelected: {
     borderColor: colors.accent,
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.surfaceRaised,
   },
   rowPressed: {
     opacity: 0.85,

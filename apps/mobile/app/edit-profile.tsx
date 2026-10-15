@@ -15,21 +15,25 @@ import {
     ScrollView,
     StyleSheet,
     type StyleProp,
-    Switch,
-    Text,
-    TextInput,
     type ViewStyle,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppData } from '@/hooks/use-app-data';
+import { SwitchRow } from '@/components/ui/app-switch';
+import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
+import { ChoiceChip } from '@/components/ui/choice';
+import { Screen } from '@/components/ui/screen';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { TextField as UiTextField } from '@/components/ui/text-field';
+import { colors, gutter, radius, space } from '@/constants/theme';
 import { type UserProfile } from '@/constants/mock-data';
+import { useAppData } from '@/hooks/use-app-data';
 
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 4;
 const PHOTO_GRID_COLUMNS = 3;
-const PHOTO_GRID_GAP = 10;
+const PHOTO_GRID_GAP = space.xs;
 const GENDER_OPTIONS = ['Male', 'Female', 'Non - Binary'];
 const PREFERENCE_OPTIONS = ['Male', 'Female', 'Non - Binary People', 'Everyone'];
 const FAMILY_PLAN_OPTIONS = ['Dont want Children', 'Want Children', 'Open to Children', 'Not Sure'];
@@ -385,24 +389,26 @@ export default function EditProfileScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <Screen>
             <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                <View style={styles.topBar}>
-                    <Pressable style={styles.circleButton} onPress={() => router.back()} disabled={isServiceBusy}>
-                        <Ionicons name="chevron-back" size={24} color="#101010" />
-                    </Pressable>
-                    <Text style={styles.title}>Edit Profile</Text>
-                    <View style={styles.topBarAction}>
-                        {isLoadingProfile ? (
-                            <ActivityIndicator accessibilityLabel="Loading profile" size="small" color="#FCAD00" />
+                <ScreenHeader
+                    title="Edit profile"
+                    onBack={isServiceBusy ? () => undefined : undefined}
+                    right={
+                        isLoadingProfile ? (
+                            <ActivityIndicator accessibilityLabel="Loading profile" size="small" color={colors.accent} />
                         ) : hasUnsavedChanges || isSavingProfile ? (
-                            <Pressable style={styles.saveButton} onPress={saveProfile} disabled={isServiceBusy || isSavingProfile}>
-                                <Text numberOfLines={1} style={styles.saveText}>{isSavingProfile ? 'Saving' : 'Save'}</Text>
-                            </Pressable>
-                        ) : null}
-                    </View>
-                </View>
-
+                            <Button
+                                label="Save"
+                                size="sm"
+                                fullWidth={false}
+                                loading={isSavingProfile}
+                                disabled={isServiceBusy}
+                                onPress={saveProfile}
+                            />
+                        ) : null
+                    }
+                />
                 <ScrollView
                     scrollEnabled={!isPhotoDragging}
                     showsVerticalScrollIndicator={false}
@@ -443,9 +449,9 @@ export default function EditProfileScreen() {
                                     </View>
                                 ))}
                         </View>
-                        <Text style={styles.helperText}>
-                            Tap a photo to replace it, or drag its handle to reorder it. Replaced photos are deleted from Storage.
-                        </Text>
+                        <AppText variant="footnote" color={colors.textFaint}>
+                            Tap a photo to replace it, or drag its handle to reorder. Your first photo is your main one.
+                        </AppText>
                     </Section>
 
                     <Section title="Basics">
@@ -485,7 +491,7 @@ export default function EditProfileScreen() {
                     </Section>
                 </ScrollView>
             </KeyboardAvoidingView>
-        </SafeAreaView>
+        </Screen>
     );
 }
 
@@ -556,7 +562,7 @@ function PhotoSlot({
                 style={[styles.photoSlot, slotSize ? { width: slotSize, height: slotSize } : null, slotStyle]}
                 onPress={onAdd}
                 disabled={isBusy}>
-                <Ionicons name="add" size={24} color="#F7B000" />
+                <Ionicons name="add" size={22} color={colors.accent} />
             </Pressable>
         );
     }
@@ -590,12 +596,11 @@ function PhotoSlot({
                 style={styles.removeButton}
                 onPress={() => onRemove(photoUri)}
                 disabled={isBusy || isUploading}>
-                <Ionicons name="close" size={12} color="#FFFFFF" />
+                <Ionicons name="close" size={14} color={colors.text} />
             </Pressable>
             {isUploading ? (
                 <View style={styles.uploadOverlay}>
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.uploadText}>Uploading</Text>
+                    <ActivityIndicator size="small" color={colors.accent} />
                 </View>
             ) : (
                 <View
@@ -603,7 +608,7 @@ function PhotoSlot({
                     accessibilityLabel={`Reorder photo ${index + 1}`}
                     accessibilityRole="button"
                     style={styles.dragHandle}>
-                    <Ionicons name="reorder-three" size={16} color="#FFFFFF" />
+                    <Ionicons name="reorder-three" size={16} color={colors.text} />
                 </View>
             )}
         </Animated.View>
@@ -613,7 +618,7 @@ function PhotoSlot({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
         <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{title}</Text>
+            <AppText variant="title3">{title}</AppText>
             {children}
         </View>
     );
@@ -633,17 +638,14 @@ function TextField({
     multiline?: boolean;
 }) {
     return (
-        <View style={styles.field}>
-            <Text style={styles.fieldLabel}>{label}</Text>
-            <TextInput
-                value={value}
-                onChangeText={onChangeText}
-                keyboardType={keyboardType}
-                multiline={multiline}
-                placeholderTextColor="#A59A8F"
-                style={[styles.input, multiline && styles.multilineInput]}
-            />
-        </View>
+        <UiTextField
+            label={label}
+            value={value}
+            onChangeText={onChangeText}
+            keyboardType={keyboardType}
+            multiline={multiline}
+            autoCapitalize={keyboardType === 'email-address' ? 'none' : undefined}
+        />
     );
 }
 
@@ -662,17 +664,18 @@ function OptionGroup({
 }) {
     return (
         <View style={styles.field}>
-            <Text style={styles.fieldLabel}>{label}</Text>
+            <AppText variant="overline" color={colors.textMuted}>
+                {label}
+            </AppText>
             <View style={styles.optionWrap}>
-                {options.map((option) => {
-                    const selected = selectedValue === option || selectedValues?.includes(option);
-
-                    return (
-                        <Pressable key={option} style={[styles.optionChip, selected && styles.optionChipSelected]} onPress={() => onSelect(option)}>
-                            <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{option}</Text>
-                        </Pressable>
-                    );
-                })}
+                {options.map((option) => (
+                    <ChoiceChip
+                        key={option}
+                        label={option}
+                        selected={selectedValue === option || Boolean(selectedValues?.includes(option))}
+                        onPress={() => onSelect(option)}
+                    />
+                ))}
             </View>
         </View>
     );
@@ -687,89 +690,32 @@ function VisibilitySwitch({
     value: boolean;
     onValueChange: (value: boolean) => void;
 }) {
-    return (
-        <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>{label}</Text>
-            <Switch
-                value={value}
-                onValueChange={onValueChange}
-                trackColor={{ false: '#E1D7C6', true: '#FBD06D' }}
-                thumbColor={value ? '#FCAD00' : '#F8F1E4'}
-                ios_backgroundColor="#E1D7C6"
-            />
-        </View>
-    );
+    return <SwitchRow label={label} value={value} onValueChange={onValueChange} />;
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#FFFCF7',
-    },
     keyboard: {
         flex: 1,
     },
-    topBar: {
-        minHeight: 64,
-        paddingHorizontal: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    circleButton: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        borderWidth: 1,
-        borderColor: '#FBD06D',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    title: {
-        color: '#090A0E',
-        fontSize: 21,
-        fontWeight: '800',
-    },
-    topBarAction: {
-        width: 78,
-        minHeight: 42,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    saveButton: {
-        width: '100%',
-        minHeight: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFD11B',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 14,
-    },
-    saveText: {
-        color: '#FFFFFF',
-        fontSize: 15,
-        fontWeight: '800',
-    },
     content: {
-        paddingHorizontal: 20,
-        paddingBottom: 36,
-        gap: 18,
+        paddingHorizontal: gutter,
+        paddingTop: space.md,
+        paddingBottom: space.huge,
+        gap: space.xxl,
     },
     section: {
-        gap: 14,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: '#FFE3A1',
-        backgroundColor: '#FFFFFF',
-        padding: 16,
+        gap: space.md,
     },
-    sectionTitle: {
-        color: '#090A0E',
-        fontSize: 18,
-        fontWeight: '800',
+    field: {
+        gap: space.xs,
+    },
+    optionWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: space.xs,
     },
     photoGrid: {
-        minHeight: 1,
+        width: '100%',
     },
     photoGridRow: {
         flexDirection: 'row',
@@ -778,11 +724,11 @@ const styles = StyleSheet.create({
         marginBottom: PHOTO_GRID_GAP,
     },
     photoSlot: {
-        borderRadius: 14,
+        borderRadius: radius.md,
         borderWidth: 1,
         borderStyle: 'dashed',
-        borderColor: '#FFD22C',
-        backgroundColor: '#FFFBEF',
+        borderColor: colors.borderStrong,
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
@@ -792,15 +738,15 @@ const styles = StyleSheet.create({
     },
     photoSlotDragging: {
         borderStyle: 'solid',
-        borderColor: '#FCAD00',
-        opacity: 0.82,
+        borderColor: colors.accent,
+        opacity: 0.85,
         zIndex: 100,
         elevation: 12,
     },
     photoSlotDropTarget: {
         borderStyle: 'solid',
-        borderColor: '#FCAD00',
-        backgroundColor: '#FFF4C7',
+        borderColor: colors.accent,
+        backgroundColor: colors.surfaceRaised,
     },
     photo: {
         width: '100%',
@@ -812,105 +758,34 @@ const styles = StyleSheet.create({
     },
     removeButton: {
         position: 'absolute',
-        top: 7,
-        right: 7,
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        backgroundColor: 'rgba(9, 10, 14, 0.72)',
+        top: 6,
+        right: 6,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: colors.glass,
+        borderWidth: 1,
+        borderColor: colors.glassBorder,
+    },
+    uploadOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.scrim,
     },
     dragHandle: {
         position: 'absolute',
         right: 6,
         bottom: 6,
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: 'rgba(9, 10, 14, 0.56)',
+        width: 30,
+        height: 30,
+        borderRadius: 15,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    uploadOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(9, 10, 14, 0.55)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 7,
-    },
-    uploadText: {
-        color: '#FFFFFF',
-        fontSize: 12,
-        fontWeight: '800',
-    },
-    helperText: {
-        color: '#85858D',
-        fontSize: 13,
-        lineHeight: 17,
-    },
-    field: {
-        gap: 8,
-    },
-    fieldLabel: {
-        color: '#6D6258',
-        fontSize: 13,
-        fontWeight: '800',
-        textTransform: 'uppercase',
-    },
-    input: {
-        minHeight: 48,
-        borderRadius: 12,
+        backgroundColor: colors.glass,
         borderWidth: 1,
-        borderColor: '#E8D8B8',
-        backgroundColor: '#FFFCF7',
-        paddingHorizontal: 13,
-        paddingVertical: 11,
-        color: '#090A0E',
-        fontSize: 15,
-    },
-    multilineInput: {
-        minHeight: 92,
-        textAlignVertical: 'top',
-    },
-    optionWrap: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 9,
-    },
-    optionChip: {
-        minHeight: 38,
-        borderRadius: 19,
-        borderWidth: 1,
-        borderColor: '#E8D8B8',
-        backgroundColor: '#FFFCF7',
-        paddingHorizontal: 13,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    optionChipSelected: {
-        backgroundColor: '#FFD11B',
-        borderColor: '#FFD11B',
-    },
-    optionText: {
-        color: '#554B43',
-        fontSize: 14,
-        fontWeight: '700',
-    },
-    optionTextSelected: {
-        color: '#FFFFFF',
-    },
-    switchRow: {
-        minHeight: 42,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-    },
-    switchLabel: {
-        flex: 1,
-        color: '#554B43',
-        fontSize: 15,
-        fontWeight: '700',
+        borderColor: colors.glassBorder,
     },
 });

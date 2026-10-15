@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
   },
   accent: {
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.surface,
     borderColor: colors.accentLine,
   },
   padded: {
