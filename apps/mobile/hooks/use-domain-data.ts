@@ -23,7 +23,6 @@ import {
   passProfile,
   purchaseCredits,
   restoreSubscription,
-  spendCredit,
   updateSettings,
 } from '@/services/supabase-domain-service';
 import {
@@ -206,10 +205,6 @@ export function useDomainMutations() {
         return { previous };
       },
       onError: (_error, _chatId, context) => client.setQueryData(queryKeys.chatPreviews(id), context?.previous),
-    }),
-    spendCredit: useMutation({
-      mutationFn: spendCredit,
-      onSuccess: () => invalidate(queryKeys.creditAccount(id), queryKeys.activity(id)),
     }),
     purchaseCredits: useMutation({
       mutationFn: purchaseCredits,

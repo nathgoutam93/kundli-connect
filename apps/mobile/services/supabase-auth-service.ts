@@ -89,8 +89,38 @@ type ProfilePhotoRow = {
   sort_order: number;
 };
 
-/** Row shape of the public.profile_cards view (also embedded as JSON by the RPCs). */
-type ProfileCardRow = Omit<ProfileRow, 'phone' | 'email' | 'time_of_birth' | 'birth_latitude' | 'birth_longitude' | 'birth_timezone' | 'kundli_generation_status' | 'photo_urls' | 'updated_at'> & {
+/**
+ * Row shape of the public.profile_cards view (also embedded as JSON by the RPCs). Other users'
+ * cards carry an age but never contact details or birth date, time or place.
+ */
+type ProfileCardRow = Pick<
+  ProfileRow,
+  | 'id'
+  | 'display_name'
+  | 'gender'
+  | 'gender_preferences'
+  | 'height'
+  | 'location'
+  | 'bio'
+  | 'family_plans'
+  | 'family_plans_visible_on_profile'
+  | 'workplace'
+  | 'workplace_visible_on_profile'
+  | 'job_role'
+  | 'job_role_visible_on_profile'
+  | 'school'
+  | 'school_visible_on_profile'
+  | 'education_level'
+  | 'education_level_visible_on_profile'
+  | 'religious_beliefs'
+  | 'drinking'
+  | 'drinking_visible_on_profile'
+  | 'smoking'
+  | 'smoking_visible_on_profile'
+  | 'onboarding_completed'
+  | 'created_at'
+> & {
+  age: number | null;
   photo_paths: string[] | null;
 };
 
@@ -215,27 +245,6 @@ function base64ToArrayBuffer(base64: string) {
   return bytes.buffer;
 }
 
-function calculateAge(dateOfBirth: string | null) {
-  if (!dateOfBirth) {
-    return 0;
-  }
-
-  const birthDate = new Date(`${dateOfBirth}T00:00:00.000Z`);
-  if (Number.isNaN(birthDate.getTime())) {
-    return 0;
-  }
-
-  const today = new Date();
-  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
-  const monthDelta = today.getUTCMonth() - birthDate.getUTCMonth();
-
-  if (monthDelta < 0 || (monthDelta === 0 && today.getUTCDate() < birthDate.getUTCDate())) {
-    age -= 1;
-  }
-
-  return Math.max(age, 0);
-}
-
 function createCompatibility(profileId: string): CompatibilityResult {
   const seed = [...profileId].reduce((total, char) => total + char.charCodeAt(0), 0);
   const score = 72 + (seed % 19);
@@ -350,9 +359,9 @@ function profileRowToDiscoverProfile(
     id: row.id,
     createdAt: row.created_at,
     name,
-    age: calculateAge(row.date_of_birth),
+    age: row.age ?? 0,
     gender: row.gender || '',
-    location: row.location || row.birth_place || 'India',
+    location: row.location || 'India',
     bio,
     prompt: bio,
     photos,
@@ -726,7 +735,6 @@ export async function updateCurrentUserProfile(profile: UserProfile, options?: {
 
   const updates = {
     id: user.id,
-    phone: profile.phoneNumber || user.phone || null,
     email: profile.email || user.email || null,
     display_name: profile.name || null,
     gender: profile.gender || null,
@@ -738,7 +746,6 @@ export async function updateCurrentUserProfile(profile: UserProfile, options?: {
     birth_latitude: toNullableNumber(profile.birthLatitude),
     birth_longitude: toNullableNumber(profile.birthLongitude),
     birth_timezone: profile.birthTimezone || null,
-    kundli_generation_status: profile.kundliStatus,
     location: profile.location || null,
     bio: profile.bio || null,
     family_plans: profile.familyPlans || null,

@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_LENGTH, requireText, requireUuid } from "../_shared/guards.ts";
 import { HttpError, jsonResponse, readJson, runInBackground, servePost } from "../_shared/http.ts";
 import { sendPushToUser } from "../_shared/push.ts";
 import { getAdminClient, getUserClient, rpcError } from "../_shared/supabase.ts";
@@ -15,11 +16,8 @@ type SentChatMessageResult = {
 
 servePost(async (request) => {
   const body = await readJson<{ chatId?: string; text?: string }>(request);
-  const chatId = body.chatId?.trim();
-  const text = body.text?.trim();
-
-  if (!chatId) throw new HttpError(400, "Missing chatId");
-  if (!text) throw new HttpError(400, "Missing text");
+  const chatId = requireUuid(body.chatId, "chatId");
+  const text = requireText(body.text, "text", MAX_MESSAGE_LENGTH);
 
   // send_chat_message checks membership via auth.uid() and writes the message, chat
   // timestamps and the recipient's activity entry in one transaction.

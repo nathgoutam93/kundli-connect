@@ -1,3 +1,4 @@
+import { assertCanInteract, refundCredit, requireUuid, spendCredit } from "../_shared/guards.ts";
 import { HttpError, jsonResponse, readJson, requiredEnv, servePost } from "../_shared/http.ts";
 import { getRequestContext, orderedPair } from "../_shared/supabase.ts";
 
@@ -264,20 +265,15 @@ const profileColumns =
 
 servePost(async (request) => {
   const body = await readJson<{ targetProfileId?: string }>(request);
-  const targetProfileId = body.targetProfileId?.trim();
-
-  if (!targetProfileId) throw new HttpError(400, "Missing targetProfileId");
+  const targetProfileId = requireUuid(body.targetProfileId, "targetProfileId");
 
   const astrologyApiKey = requiredEnv("ASTROLOGY_API_KEY");
   const astrologyUserId = Deno.env.get("ASTROLOGY_API_USER_ID");
-  const { userId, userClient, adminClient } = await getRequestContext(request);
-
-  if (userId === targetProfileId) {
-    throw new HttpError(400, "Cannot generate a match score for yourself.");
-  }
+  const { userId, adminClient } = await getRequestContext(request);
 
   const pair = orderedPair(userId, targetProfileId);
-  const [existingScoreResult, profilesResult] = await Promise.all([
+  const [, existingScoreResult, profilesResult] = await Promise.all([
+    assertCanInteract(adminClient, userId, targetProfileId),
     adminClient
       .from("match_scores")
       .select("id, compatibility_report, raw_report")
@@ -317,12 +313,11 @@ servePost(async (request) => {
     throw new HttpError(400, error instanceof Error ? error.message : "Missing required birth details.");
   }
 
-  const creditReason = `Generated compatibility with ${targetProfileId}`;
-  const { data: allowed, error: creditError } = await userClient.rpc("spend_credit", {
-    p_reason: creditReason,
-  });
-  if (creditError) throw creditError;
-  if (!allowed) throw new HttpError(402, "Credits needed");
+  const { transactionId } = await spendCredit(
+    adminClient,
+    userId,
+    `Generated compatibility with ${targetProfileId}`,
+  );
 
   const endpoint =
     Deno.env.get("ASTROLOGY_MATCH_API_ENDPOINT") ??
@@ -357,7 +352,7 @@ servePost(async (request) => {
       });
     }
   } catch (error) {
-    await refundCredit(adminClient, userId, creditReason);
+    await refundCredit(adminClient, transactionId);
     throw error instanceof HttpError ? error : new HttpError(502, "Astrology match-making request failed");
   }
 
@@ -384,33 +379,3 @@ servePost(async (request) => {
   return jsonResponse({ matchScoreId: matchScore.id, compatibility });
 });
 
-/**
- * Gives back the credit spend_credit took when the paid astrology call fails. spend_credit
- * does not write a debit for active subscribers, so only refund when a debit exists.
- */
-async function refundCredit(
-  adminClient: Awaited<ReturnType<typeof getRequestContext>>["adminClient"],
-  userId: string,
-  reason: string,
-) {
-  const { data: debit } = await adminClient
-    .from("credit_transactions")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("reason", reason)
-    .eq("amount", -1)
-    .gte("created_at", new Date(Date.now() - 5 * 60 * 1000).toISOString())
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ id: string }>();
-
-  if (!debit) return;
-
-  const { error } = await adminClient.from("credit_transactions").insert({
-    user_id: userId,
-    amount: 1,
-    reason: `Refund: ${reason}`,
-    metadata: { refundOf: debit.id },
-  });
-  if (error) console.error("Failed to refund match score credit.", error);
-}

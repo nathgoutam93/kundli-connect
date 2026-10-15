@@ -39,6 +39,7 @@ export function getUserClient(request: Request) {
 export function rpcError(error: { code?: string; message: string }) {
   const status =
     error.code === "28000" || error.code === "PGRST301" ? 401
+    : error.code === "42501" ? 403
     : error.code === "P0002" ? 404
     : error.code === "22023" ? 400
     : 500;

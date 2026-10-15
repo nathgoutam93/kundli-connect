@@ -1,3 +1,11 @@
+import {
+  assertCanInteract,
+  MAX_OPENING_MESSAGE_LENGTH,
+  refundCredit,
+  requireText,
+  requireUuid,
+  spendCredit,
+} from "../_shared/guards.ts";
 import { HttpError, jsonResponse, readJson, runInBackground, servePost } from "../_shared/http.ts";
 import { sendPushToUser } from "../_shared/push.ts";
 import { getDisplayName, getRequestContext, orderedPair } from "../_shared/supabase.ts";
@@ -6,20 +14,14 @@ const likeColumns = "id, from_user_id, to_user_id, opening_message, match_score_
 
 servePost(async (request) => {
   const body = await readJson<{ targetProfileId?: string; openingMessage?: string }>(request);
-  const targetProfileId = body.targetProfileId?.trim();
-  const openingMessage = body.openingMessage?.trim();
+  const targetProfileId = requireUuid(body.targetProfileId, "targetProfileId");
+  const openingMessage = requireText(body.openingMessage, "openingMessage", MAX_OPENING_MESSAGE_LENGTH);
 
-  if (!targetProfileId) throw new HttpError(400, "Missing targetProfileId");
-  if (!openingMessage) throw new HttpError(400, "Missing openingMessage");
-
-  const { userId, userClient, adminClient } = await getRequestContext(request);
-
-  if (userId === targetProfileId) {
-    throw new HttpError(400, "Cannot like your own profile.");
-  }
+  const { userId, adminClient } = await getRequestContext(request);
 
   const pair = orderedPair(userId, targetProfileId);
-  const [matchScoreResult, existingLikeResult, senderName] = await Promise.all([
+  const [, matchScoreResult, existingLikeResult, senderName] = await Promise.all([
+    assertCanInteract(adminClient, userId, targetProfileId),
     adminClient
       .from("match_scores")
       .select("id")
@@ -46,11 +48,7 @@ servePost(async (request) => {
     throw new HttpError(400, "Generate a match score before sending a like.");
   }
 
-  const { data: allowed, error: creditError } = await userClient.rpc("spend_credit", {
-    p_reason: `Sent a like to ${targetProfileId}`,
-  });
-  if (creditError) throw creditError;
-  if (!allowed) throw new HttpError(402, "Credits needed");
+  const { transactionId } = await spendCredit(adminClient, userId, `Sent a like to ${targetProfileId}`);
 
   const { data: like, error: likeError } = await adminClient
     .from("likes")
@@ -64,7 +62,12 @@ servePost(async (request) => {
     .select(likeColumns)
     .single();
 
-  if (likeError) throw likeError;
+  if (likeError) {
+    await refundCredit(adminClient, transactionId);
+    // A concurrent request for the same pair won the unique constraint; that like stands.
+    if (likeError.code === "23505") throw new HttpError(409, "Like already sent.");
+    throw likeError;
+  }
 
   const { error: activityError } = await adminClient.from("activity_events").insert([
     {

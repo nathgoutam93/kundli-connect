@@ -129,12 +129,6 @@ export async function getCreditAccount() {
   return { balance: Number(balance ?? 0), history };
 }
 
-export async function spendCredit(reason: string) {
-  const { data, error } = await getSupabaseClient().rpc('spend_credit', { p_reason: reason });
-  if (error) throw error;
-  return Boolean(data);
-}
-
 export async function purchaseCredits(amount: number) {
   const { error } = await getSupabaseClient().rpc('test_purchase_credits', { p_amount: amount });
   if (error) throw error;

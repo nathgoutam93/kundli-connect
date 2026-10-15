@@ -301,6 +301,16 @@ async function fetchAstroDetails(astrologyBody: Record<string, number>, authHead
   return rawResponse;
 }
 
+function birthDetailsSignature(profile: ProfileBirthDetails) {
+  return [
+    profile.date_of_birth,
+    profile.time_of_birth,
+    profile.birth_latitude,
+    profile.birth_longitude,
+    profile.birth_timezone,
+  ].join('|');
+}
+
 const profileColumns = 'id, date_of_birth, time_of_birth, birth_place, birth_latitude, birth_longitude, birth_timezone';
 
 servePost(async (request) => {
@@ -309,9 +319,17 @@ servePost(async (request) => {
   )}`;
   const { userId, adminClient } = await getRequestContext(request);
 
-  const [, profileResult] = await Promise.all([
-    updateKundliStatus(adminClient, userId, 'pending'),
+  const [profileResult, existingResult] = await Promise.all([
     adminClient.from('profiles').select(profileColumns).eq('id', userId).single<ProfileBirthDetails>(),
+    adminClient
+      .from('kundlis')
+      .select('input_signature, parsed_summary, chart_image_paths')
+      .eq('user_id', userId)
+      .maybeSingle<{
+        input_signature: string | null;
+        parsed_summary: Record<string, unknown>;
+        chart_image_paths: Record<string, string> | null;
+      }>(),
   ]);
   const profile = profileResult.data;
 
@@ -331,6 +349,22 @@ servePost(async (request) => {
     await updateKundliStatus(adminClient, userId, 'failed');
     throw new HttpError(400, 'Missing required birth details');
   }
+
+  // The astrology calls are paid and deterministic: reuse the stored Kundli when it was built
+  // from the same birth details (e.g. onboarding retries or repeated calls).
+  const inputSignature = birthDetailsSignature(profile);
+  const existing = existingResult.data;
+  if (existing && existing.input_signature === inputSignature) {
+    await updateKundliStatus(adminClient, userId, 'generated');
+    return jsonResponse({
+      status: 'generated',
+      parsed_summary: existing.parsed_summary,
+      chart_image_paths: existing.chart_image_paths ?? {},
+      cached: true,
+    });
+  }
+
+  await updateKundliStatus(adminClient, userId, 'pending');
 
   const { day, month, year } = splitDate(profile.date_of_birth);
   const { hour, min } = splitTime(profile.time_of_birth);
@@ -364,6 +398,7 @@ servePost(async (request) => {
         parsed_summary: parsedSummary,
         chart_image_paths: chartImagePaths,
         chart_raw_responses: chartRawResponses,
+        input_signature: inputSignature,
         generated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id' }
