@@ -15,6 +15,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo-google-fonts/dm-sans": "^0.4.2",
+    "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo/vector-icons": "^15.0.3",
     "@quidone/react-native-wheel-picker": "^1.6.4",
     "@react-native-async-storage/async-storage": "2.2.0",

@@ -2,11 +2,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Notifications from 'expo-notifications';
 import { Redirect, Tabs } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
+import { type ComponentProps, useEffect, useRef } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
 
-import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
+import { FullScreenLoader } from '@/components/ui/loader';
+import { colors, fontFamily, radius } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
+
+type IconName = ComponentProps<typeof Ionicons>['name'];
+
+function TabIcon({ name, focused, color }: { name: IconName; focused: boolean; color: string }) {
+  return (
+    <View style={styles.iconWrap}>
+      <View style={[styles.indicator, focused && styles.indicatorActive]} />
+      <Ionicons name={focused ? name : (`${name}-outline` as IconName)} size={22} color={color} />
+    </View>
+  );
+}
 
 export default function MainTabsLayout() {
   const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile } = useAppData();
@@ -63,11 +76,7 @@ export default function MainTabsLayout() {
   }, [hasCompletedOnboarding, isAuthenticated, isHydrated, profile.id]);
 
   if (!isHydrated) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#2D241E" />
-      </View>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!isAuthenticated) {
@@ -82,33 +91,32 @@ export default function MainTabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#2D241E',
-        tabBarInactiveTintColor: '#8D7F74',
-        tabBarStyle: {
-          borderTopColor: '#E9E2D9',
-          backgroundColor: '#FBF8F3',
-        },
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textFaint,
+        tabBarStyle: styles.tabBar,
+        tabBarLabelStyle: styles.tabLabel,
+        sceneStyle: { backgroundColor: colors.background },
       }}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'Discover',
-          tabBarIcon: ({ color, size }) => <Ionicons name="flame" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name="flame" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
         name="likes"
         options={{
           title: 'Likes',
-          tabBarIcon: ({ color, size }) => <Ionicons name="heart" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name="heart" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
         name="chats"
         options={{
           title: 'Chats',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubble-ellipses" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="chatbubble-ellipses" focused={focused} color={color} />
           ),
         }}
       />
@@ -122,7 +130,7 @@ export default function MainTabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name="person" focused={focused} color={color} />,
         }}
       />
     </Tabs>
@@ -130,10 +138,30 @@ export default function MainTabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
+  tabBar: {
+    backgroundColor: colors.backgroundDeep,
+    borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 6,
+  },
+  tabLabel: {
+    fontFamily: fontFamily.bodyMedium,
+    fontSize: 11,
+    letterSpacing: 0.2,
+  },
+  iconWrap: {
     alignItems: 'center',
-    backgroundColor: '#F7F5F0',
+    gap: 4,
+  },
+  indicator: {
+    width: 4,
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.transparent,
+    position: 'absolute',
+    top: -9,
+  },
+  indicatorActive: {
+    backgroundColor: colors.accent,
   },
 });

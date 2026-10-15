@@ -1,6 +1,8 @@
 import { AppleMaps, GoogleMaps } from 'expo-maps';
 import { Platform, type StyleProp, type ViewStyle } from 'react-native';
 
+import { colors } from '@/constants/theme';
+
 type Coordinate = {
   latitude: number;
   longitude: number;
@@ -87,7 +89,7 @@ function AppleBirthLocationMap({
           id: 'birth-location',
           coordinates: coordinate,
           title: markerTitle,
-          tintColor: '#FCAD00',
+          tintColor: colors.accent,
         },
       ]}
       onMapClick={({ coordinates }) => {
