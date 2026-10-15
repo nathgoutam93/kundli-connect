@@ -2,10 +2,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import CountryPicker, { Country, CountryCode } from 'react-native-country-picker-modal';
 
+import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
+import { Screen } from '@/components/ui/screen';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { TextField } from '@/components/ui/text-field';
+import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+
+const COUNTRY_PICKER_THEME = {
+    primaryColor: colors.accent,
+    primaryColorVariant: colors.border,
+    backgroundColor: colors.background,
+    onBackgroundTextColor: colors.text,
+    filterPlaceholderTextColor: colors.textFaint,
+    fontFamily: fontFamily.body,
+    fontSize: 16,
+};
 
 const OTP_LENGTH = 6;
 
@@ -176,61 +192,71 @@ export default function PhoneScreen() {
         }
     }
 
+    const canContinue = Boolean(phone.trim()) && !isSendingOtp && !isServiceBusy;
+
     return (
-        <View style={styles.container}>
-
-            <View style={styles.headerSection}>
-                <Text style={styles.title}>What&apos;s your phone number?</Text>
-                <Text style={styles.subtitle}>we only ask to verify it&apos;s you. It won&apos;t be displayed anywhere, including your profile.</Text>
-
-                <View style={styles.section}>
-                    <View style={styles.phoneRow}>
-                        <Pressable style={styles.countryCodeBox} onPress={() => setCountryPickerVisible(true)}>
-                            <Text style={styles.countryCodeText}>
-                                {`${countryCodeToFlagEmoji(countryCode)}  +${callingCode}`}
-                            </Text>
-                            <Ionicons name="chevron-down" size={14} color="#1A1A1A" />
-                        </Pressable>
-                        <View style={styles.phoneBox}>
-                            <TextInput
-                                ref={phoneInputRef}
-                                autoFocus
-                                value={phone}
-                                onChangeText={onPhoneChange}
-                                placeholder="Phone number"
-                                placeholderTextColor="#A7A7A7"
-                                keyboardType="number-pad"
-                                returnKeyType="done"
-                                style={styles.phoneTextInput}
-                            />
-                        </View>
-                    </View>
+        <Screen>
+            <ScreenHeader
+                onBack={() => {
+                    if (showOtp) {
+                        setShowOtp(false);
+                        setOtp('');
+                        phoneInputRef.current?.focus();
+                        return;
+                    }
+                    router.back();
+                }}
+            />
+            <KeyboardAvoidingView
+                style={styles.container}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                <View style={styles.headerSection}>
+                    <AppText variant="overline" color={colors.accent}>
+                        {showOtp ? 'Step 2 of 2' : 'Step 1 of 2'}
+                    </AppText>
+                    <AppText variant="title1">
+                        {showOtp ? 'Enter the code we sent' : 'What\'s your phone number?'}
+                    </AppText>
+                    <AppText variant="callout" color={colors.textMuted}>
+                        {showOtp
+                            ? `A ${OTP_LENGTH}-digit code is on its way to ${otpPhoneNumber}.`
+                            : 'We only use it to verify it\'s you. It never appears on your profile.'}
+                    </AppText>
                 </View>
 
                 {!showOtp ? (
-                    <Pressable
-                        onPress={onContinue}
-                        disabled={!phone.trim() || isSendingOtp || isServiceBusy}
-                        accessibilityState={{ busy: isSendingOtp, disabled: !phone.trim() || isSendingOtp || isServiceBusy }}
-                        style={[
-                            styles.continueButton,
-                            (!phone.trim() || isSendingOtp || isServiceBusy) && styles.continueButtonDisabled,
-                        ]}>
-                        {isSendingOtp ? (
-                            <>
-                                <ActivityIndicator size="small" color="#1A1A1A" />
-                                <Text style={styles.continueButtonText}>Sending OTP...</Text>
-                            </>
-                        ) : (
-                            <Text style={styles.continueButtonText}>Continue</Text>
-                        )}
-                    </Pressable>
+                    <View style={styles.form}>
+                        <TextField
+                            ref={phoneInputRef}
+                            autoFocus
+                            value={phone}
+                            onChangeText={onPhoneChange}
+                            placeholder="Phone number"
+                            keyboardType="number-pad"
+                            returnKeyType="done"
+                            onSubmitEditing={onContinue}
+                            leading={
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Choose country code"
+                                    style={styles.countryCode}
+                                    onPress={() => setCountryPickerVisible(true)}>
+                                    <AppText variant="bodyStrong">
+                                        {`${countryCodeToFlagEmoji(countryCode)} +${callingCode}`}
+                                    </AppText>
+                                    <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+                                </Pressable>
+                            }
+                        />
+                        <Button
+                            label={isSendingOtp ? 'Sending code' : 'Send code'}
+                            onPress={onContinue}
+                            disabled={!canContinue}
+                            loading={isSendingOtp}
+                        />
+                    </View>
                 ) : (
-                    <>
-                        <View style={styles.section}>
-                            <Text style={styles.sectionLabel}>Enter OTP</Text>
-                        </View>
-
+                    <View style={styles.form}>
                         <Pressable
                             style={styles.otpRow}
                             disabled={isVerifying}
@@ -247,17 +273,10 @@ export default function PhoneScreen() {
                                             styles.otpBox,
                                             isFilled && styles.otpBoxFilled,
                                             isActive && styles.otpBoxActive,
-                                            !isFilled && !isActive && styles.otpBoxMuted,
                                         ]}>
-                                        <Text
-                                            style={[
-                                                styles.otpText,
-                                                isFilled && styles.otpTextFilled,
-                                                isActive && styles.otpTextActive,
-                                                !isFilled && !isActive && styles.otpTextMuted,
-                                            ]}>
-                                            {value || '0'}
-                                        </Text>
+                                        <AppText variant="title2" color={colors.text}>
+                                            {value}
+                                        </AppText>
                                     </View>
                                 );
                             })}
@@ -278,20 +297,35 @@ export default function PhoneScreen() {
                                 accessibilityLiveRegion="polite"
                                 accessibilityRole="progressbar"
                                 style={styles.verifyingRow}>
-                                <ActivityIndicator size="small" color="#E1B100" />
-                                <Text style={styles.verifyingText}>Verifying code...</Text>
+                                <ActivityIndicator size="small" color={colors.accent} />
+                                <AppText variant="subhead" color={colors.textMuted}>
+                                    Verifying code
+                                </AppText>
                             </View>
+                        ) : secondsLeft > 0 ? (
+                            <AppText variant="subhead" color={colors.textMuted} align="center">
+                                Resend code in{' '}
+                                <AppText variant="subhead" color={colors.accent}>
+                                    {secondsLeft}s
+                                </AppText>
+                            </AppText>
                         ) : (
-                            <Pressable onPress={resendCode} disabled={secondsLeft > 0 || isServiceBusy}>
-                                <Text style={styles.resendText}>
-                                    You can resend code in <Text style={styles.resendHighlight}>{secondsLeft}</Text> s
-                                </Text>
-                            </Pressable>
+                            <Button
+                                label="Resend code"
+                                variant="ghost"
+                                size="md"
+                                onPress={resendCode}
+                                disabled={isServiceBusy}
+                            />
                         )}
-                    </>
+                    </View>
                 )}
-                {serviceError ? <Text style={styles.errorText}>{serviceError}</Text> : null}
-            </View>
+                {serviceError ? (
+                    <AppText variant="footnote" color={colors.danger}>
+                        {serviceError}
+                    </AppText>
+                ) : null}
+            </KeyboardAvoidingView>
 
             <CountryPicker
                 countryCode={countryCode}
@@ -301,180 +335,66 @@ export default function PhoneScreen() {
                 withCallingCode
                 withEmoji
                 withAlphaFilter
+                theme={COUNTRY_PICKER_THEME}
                 visible={countryPickerVisible}
                 onClose={() => setCountryPickerVisible(false)}
                 onSelect={onCountrySelect}
             />
-        </View>
+        </Screen>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F2F2F2',
-        paddingHorizontal: 22,
-        paddingTop: 14,
-    },
-    topBar: {
-        height: 52,
-        justifyContent: 'center',
+        paddingHorizontal: gutter,
+        paddingTop: space.xl,
+        gap: space.xxl,
     },
     headerSection: {
-        alignItems: 'center',
-        marginTop: 30,
+        gap: space.xs,
     },
-    title: {
-        fontSize: 42,
-        lineHeight: 56,
-        fontWeight: '400',
-        color: '#111111',
-        textAlign: 'center',
-        marginBottom: 6,
+    form: {
+        gap: space.md,
     },
-    subtitle: {
-        fontSize: 18,
-        lineHeight: 24,
-        color: '#4B4B4B',
-        textAlign: 'center',
-        marginBottom: 24,
-    },
-    section: {
-        width: '100%',
-        marginBottom: 12,
-    },
-    sectionLabel: {
-        fontSize: 13,
-        color: '#8A8A8A',
-        marginBottom: 10,
-        fontWeight: '500',
-    },
-    phoneRow: {
-        flexDirection: 'row',
-        gap: 10,
-    },
-    countryCodeBox: {
-        width: 132,
-        height: 58,
-        borderWidth: 1.2,
-        borderColor: '#F1C40F',
-        borderRadius: 16,
-        backgroundColor: '#F7F7F7',
+    countryCode: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 12,
-    },
-    countryCodeText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#191919',
-    },
-    phoneBox: {
-        flex: 1,
-        height: 58,
-        borderWidth: 1.2,
-        borderColor: '#F1C40F',
-        borderRadius: 16,
-        backgroundColor: '#F7F7F7',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-    },
-    phoneTextInput: {
-        flex: 1,
-        fontSize: 16,
-        color: '#191919',
-        fontWeight: '600',
-        paddingVertical: 0,
-    },
-    continueButton: {
-        width: '100%',
-        height: 54,
-        borderRadius: 14,
-        backgroundColor: '#F1C40F',
-        flexDirection: 'row',
-        gap: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 8,
-    },
-    continueButtonDisabled: {
-        backgroundColor: '#E5E5E5',
-    },
-    continueButtonText: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#1A1A1A',
+        gap: 6,
+        paddingRight: space.sm,
+        marginRight: space.xxs,
+        borderRightWidth: 1,
+        borderRightColor: colors.border,
+        alignSelf: 'stretch',
     },
     otpRow: {
         flexDirection: 'row',
-        gap: 10,
-        marginBottom: 14,
-        width: '100%',
+        justifyContent: 'space-between',
+        gap: space.xs,
     },
     otpBox: {
         flex: 1,
-        aspectRatio: 1,
-        maxWidth: 56,
-        borderRadius: 14,
-        borderWidth: 1.2,
-        borderColor: '#E1BC30',
-        backgroundColor: '#FFFFFF',
+        maxWidth: 52,
+        aspectRatio: 0.86,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceSunken,
         alignItems: 'center',
         justifyContent: 'center',
     },
     otpBoxFilled: {
-        backgroundColor: '#F1C40F',
-        borderColor: '#F1C40F',
+        borderColor: colors.accentLine,
+        backgroundColor: colors.accentSoft,
     },
     otpBoxActive: {
-        backgroundColor: '#FFFFFF',
-        borderColor: '#F1C40F',
-    },
-    otpBoxMuted: {
-        backgroundColor: '#EFEFEF',
-        borderColor: '#DCDCDC',
-    },
-    otpText: {
-        fontSize: 30,
-        fontWeight: '700',
-    },
-    otpTextFilled: {
-        color: '#FFFFFF',
-    },
-    otpTextActive: {
-        color: '#EBCB6F',
-    },
-    otpTextMuted: {
-        color: '#D0D0D0',
-    },
-    resendText: {
-        fontSize: 14,
-        color: '#222222',
-        marginBottom: 20,
-    },
-    resendHighlight: {
-        color: '#E1B100',
-        fontWeight: '700',
+        borderColor: colors.accent,
     },
     verifyingRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        marginBottom: 20,
-    },
-    verifyingText: {
-        fontSize: 14,
-        color: '#222222',
-        fontWeight: '600',
-    },
-    errorText: {
-        color: '#B42318',
-        fontSize: 13,
-        fontWeight: '600',
-        lineHeight: 18,
+        justifyContent: 'center',
+        gap: space.xs,
     },
     hiddenOtpInput: {
         position: 'absolute',

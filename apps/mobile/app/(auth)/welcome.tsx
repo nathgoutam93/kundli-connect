@@ -1,7 +1,11 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Alert, ImageBackground, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ImageBackground, Pressable, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
+import { artworkScrimGradient, colors, fontFamily, gutter, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
 export default function WelcomeScreen() {
@@ -25,25 +29,43 @@ export default function WelcomeScreen() {
       source={require('@/assets/images/onboard_bg.png')}
       resizeMode="cover"
       style={styles.background}>
-      <StatusBar style="light" />
-      <View style={styles.overlay} />
+      <LinearGradient
+        colors={artworkScrimGradient}
+        locations={[0, 0.3, 0.62, 1]}
+        style={StyleSheet.absoluteFill}
+      />
 
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.brand}>
+          <AppText variant="overline" color={colors.accent}>
+            ✦ Kundali Konnect ✦
+          </AppText>
+        </View>
+
         <View style={styles.content}>
-          <Text style={styles.title}>Find The One{`\n`}From Destiny</Text>
+          <View style={styles.copy}>
+            <AppText variant="display" align="center" style={styles.title}>
+              Find the one{'\n'}written in the{' '}
+              <AppText variant="display" color={colors.accent} style={styles.titleAccent}>
+                stars
+              </AppText>
+            </AppText>
+            <AppText variant="callout" color={colors.textMuted} align="center">
+              Matches guided by your Kundli — compatibility you can read, not just swipe.
+            </AppText>
+          </View>
 
           <View style={styles.actions}>
-            <Pressable style={styles.primaryButton} onPress={handleCreateAccount}>
-              <Text style={styles.primaryButtonText}>Create account</Text>
-            </Pressable>
+            <Button label="Create account" onPress={handleCreateAccount} />
+            <Button label="Continue with Google" variant="light" icon="logo-google" onPress={handleGoogleLogin} />
 
-            <Pressable style={styles.googleButton} onPress={handleGoogleLogin}>
-              <Text style={styles.googleButtonText}>Continue with Google</Text>
-            </Pressable>
-
-            <Pressable style={styles.authLink} onPress={handleCreateAccount}>
-              <Text style={styles.authLinkText}>Already have an account? </Text>
-              <Text style={styles.authLinkHighlight}>Sign in</Text>
+            <Pressable style={styles.authLink} onPress={handleCreateAccount} hitSlop={8}>
+              <AppText variant="footnote" color={colors.textMuted}>
+                Already have an account?{' '}
+                <AppText variant="footnote" color={colors.accent} style={styles.authLinkStrong}>
+                  Sign in
+                </AppText>
+              </AppText>
             </Pressable>
           </View>
         </View>
@@ -55,73 +77,43 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-    backgroundColor: '#07090F',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.42)',
+    backgroundColor: colors.backgroundDeep,
   },
   container: {
     flex: 1,
+    paddingHorizontal: gutter,
+  },
+  brand: {
+    alignItems: 'center',
+    paddingTop: space.md,
   },
   content: {
     flex: 1,
     justifyContent: 'flex-end',
-    paddingHorizontal: 24,
-    paddingBottom: 34,
-    gap: 26,
+    paddingBottom: space.md,
+    gap: space.xxl,
+  },
+  copy: {
+    gap: space.sm,
+    paddingHorizontal: space.xs,
   },
   title: {
-    color: '#E8C63B',
-    fontSize: 48,
-    lineHeight: 56,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-    textAlign: 'center',
+    fontSize: 44,
+    lineHeight: 50,
+  },
+  titleAccent: {
+    fontFamily: fontFamily.displayItalic,
+    fontSize: 44,
+    lineHeight: 50,
   },
   actions: {
-    gap: 16,
-  },
-  primaryButton: {
-    minHeight: 58,
-    borderRadius: 999,
-    backgroundColor: '#F0CC43',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
-  primaryButtonText: {
-    color: '#2A1E05',
-    fontWeight: '700',
-    fontSize: 18,
-  },
-  googleButton: {
-    minHeight: 56,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
-  googleButtonText: {
-    color: '#1F1B18',
-    fontWeight: '800',
-    fontSize: 16,
+    gap: space.sm,
   },
   authLink: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
+    alignSelf: 'center',
+    paddingVertical: space.xs,
   },
-  authLinkText: {
-    color: '#CEC7BC',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  authLinkHighlight: {
-    color: '#F0CC43',
-    fontSize: 13,
-    fontWeight: '700',
+  authLinkStrong: {
+    fontFamily: fontFamily.bodySemiBold,
   },
 });

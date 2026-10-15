@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { FullScreenLoader } from '@/components/ui/loader';
 import { useProfileQuery } from '@/hooks/use-domain-data';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -9,11 +9,7 @@ export default function Index() {
   const profile = useProfileQuery();
 
   if (isInitializing || (user && profile.isPending)) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#2D241E" />
-      </View>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!user) {
@@ -26,12 +22,3 @@ export default function Index() {
 
   return <Redirect href="/(tabs)" />;
 }
-
-const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F7F5F0',
-  },
-});

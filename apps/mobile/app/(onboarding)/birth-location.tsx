@@ -4,19 +4,14 @@ import * as Location from 'expo-location';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { BirthLocationMap } from '@/components/birth-location-map';
+import { OnboardingStep } from '@/components/onboarding-step';
+import { AppText } from '@/components/ui/app-text';
+import { IconButton } from '@/components/ui/icon-button';
+import { TextField } from '@/components/ui/text-field';
+import { colors, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
 const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -343,307 +338,153 @@ export default function BirthLocationScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={27} color="#111111" />
-        </Pressable>
-
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-          <View>
-            <Text style={styles.title}>Birth Location</Text>
-            <Text style={styles.subtitle}>These coordinates are used only to generate your kundli.</Text>
+    <OnboardingStep
+      step="birth-location"
+      title="Where were you born?"
+      subtitle="Used only to calculate your Kundli. It never appears on your profile."
+      onContinue={handleContinue}
+      continueLabel={isServiceBusy ? 'Generating your Kundli' : 'Generate my Kundli'}
+      canContinue={isFormValid}
+      isBusy={isServiceBusy}
+      error={errorMessage}>
+      <View style={styles.section}>
+        <TextField
+          label="Place of birth"
+          value={birthPlace}
+          onChangeText={handleBirthPlaceChange}
+          placeholder="City, country"
+          autoCapitalize="words"
+          returnKeyType="next"
+          error={placesError || null}
+          leading={<Ionicons name="search" size={18} color={colors.textFaint} />}
+          trailing={isFetchingPlaces ? <ActivityIndicator size="small" color={colors.accent} /> : null}
+        />
+        {placeSuggestions.length > 0 ? (
+          <View style={styles.suggestionList}>
+            {placeSuggestions.map((suggestion, index) => (
+              <Pressable
+                key={suggestion.placeId}
+                style={({ pressed }) => [
+                  styles.suggestionItem,
+                  index > 0 && styles.suggestionDivider,
+                  pressed && styles.suggestionPressed,
+                ]}
+                onPress={() => selectPlaceSuggestion(suggestion)}>
+                <Ionicons name="location-outline" size={18} color={colors.accent} />
+                <AppText variant="callout" style={styles.suggestionText}>
+                  {suggestion.description}
+                </AppText>
+              </Pressable>
+            ))}
           </View>
+        ) : null}
+      </View>
 
-          <View style={styles.panel}>
-            <View style={styles.section}>
-              <Text style={styles.heading}>Place Of Birth</Text>
-              <TextInput
-                value={birthPlace}
-                onChangeText={handleBirthPlaceChange}
-                placeholder="City, Country"
-                placeholderTextColor="#9C9CA4"
-                style={styles.lineInput}
-                autoCapitalize="words"
-                returnKeyType="next"
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <AppText variant="overline" color={colors.textMuted}>
+            Pin on map
+          </AppText>
+          <AppText variant="caption" color={colors.textFaint}>
+            {selectedCoordinate.latitude.toFixed(4)}, {selectedCoordinate.longitude.toFixed(4)}
+          </AppText>
+        </View>
+        <View style={styles.mapShell}>
+          {canRenderMap ? (
+            <>
+              <BirthLocationMap
+                style={styles.map}
+                region={mapRegion}
+                coordinate={selectedCoordinate}
+                markerTitle={birthPlace.trim() || 'Birth location'}
+                onCoordinateChange={updateSelectedCoordinate}
               />
-              {placeSuggestions.length > 0 ? (
-                <View style={styles.suggestionList}>
-                  {placeSuggestions.map((suggestion) => (
-                    <Pressable
-                      key={suggestion.placeId}
-                      style={styles.suggestionItem}
-                      onPress={() => selectPlaceSuggestion(suggestion)}>
-                      <Ionicons name="location-outline" size={18} color="#6C5A30" />
-                      <Text style={styles.suggestionText}>{suggestion.description}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-              {isFetchingPlaces ? <Text style={styles.lookupText}>Finding places...</Text> : null}
-              {placesError ? <Text style={styles.errorText}>{placesError}</Text> : null}
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.heading}>Pick On Map</Text>
-              <Text style={styles.subheading}>Tap the map to select your birth location.</Text>
-              <View style={styles.mapShell}>
-                {canRenderMap ? (
-                  <>
-                    <BirthLocationMap
-                      style={styles.map}
-                      region={mapRegion}
-                      coordinate={selectedCoordinate}
-                      markerTitle={birthPlace.trim() || 'Birth location'}
-                      onCoordinateChange={updateSelectedCoordinate}
-                    />
-                    <View style={styles.mapControls}>
-                      <Pressable
-                        style={styles.mapControlButton}
-                        accessibilityLabel="Zoom out map"
-                        onPress={() => zoomMap(2)}>
-                        <Ionicons name="remove" size={21} color="#2A2230" />
-                      </Pressable>
-                      <Pressable
-                        style={styles.mapControlButton}
-                        accessibilityLabel="Zoom in map"
-                        onPress={() => zoomMap(0.5)}>
-                        <Ionicons name="add" size={21} color="#2A2230" />
-                      </Pressable>
-                    </View>
-                  </>
-                ) : (
-                  <View style={styles.mapFallback}>
-                    <Ionicons name="map-outline" size={28} color="#6C5A30" />
-                    <Text style={styles.mapFallbackText}>Map unavailable in this build.</Text>
-                  </View>
-                )}
+              <View style={styles.mapControls}>
+                <IconButton icon="remove" variant="glass" size={36} accessibilityLabel="Zoom out map" onPress={() => zoomMap(2)} />
+                <IconButton icon="add" variant="glass" size={36} accessibilityLabel="Zoom in map" onPress={() => zoomMap(0.5)} />
               </View>
-              <View style={styles.coordinateSummary}>
-                <Text style={styles.coordinateSummaryText}>
-                  {selectedCoordinate.latitude.toFixed(4)}, {selectedCoordinate.longitude.toFixed(4)}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.heading}>Timezone</Text>
-              <Text style={styles.subheading}>Use UTC offset in hours, for example 5.5 for India.</Text>
-              <TextInput
-                value={birthTimezone}
-                onChangeText={setBirthTimezone}
-                placeholder="5.5"
-                placeholderTextColor="#9C9CA4"
-                style={styles.lineInput}
-                keyboardType="numbers-and-punctuation"
-                returnKeyType="done"
-              />
-            </View>
-
-            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-          </View>
-        </ScrollView>
-
-        <Pressable
-          style={[styles.nextButton, (!isFormValid || isServiceBusy) && styles.nextButtonDisabled]}
-          onPress={handleContinue}
-          disabled={!isFormValid || isServiceBusy}>
-          {isServiceBusy ? (
-            <Text style={styles.generatingText}>Generating</Text>
+            </>
           ) : (
-            <Ionicons name="chevron-forward" size={31} color="#FFFFFF" />
+            <View style={styles.mapFallback}>
+              <Ionicons name="map-outline" size={26} color={colors.textFaint} />
+              <AppText variant="footnote" color={colors.textMuted}>
+                Map unavailable in this build.
+              </AppText>
+            </View>
           )}
-        </Pressable>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </View>
+        <AppText variant="footnote" color={colors.textFaint}>
+          Tap the map to fine-tune the exact spot.
+        </AppText>
+      </View>
+
+      <TextField
+        label="Timezone (UTC offset)"
+        value={birthTimezone}
+        onChangeText={setBirthTimezone}
+        placeholder="5.5"
+        keyboardType="numbers-and-punctuation"
+        returnKeyType="done"
+        hint="Hours from UTC, e.g. 5.5 for India. Filled in automatically when you pick a place."
+      />
+    </OnboardingStep>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
-  keyboardContainer: {
-    flex: 1,
-    paddingHorizontal: 26,
-    paddingTop: 22,
-    paddingBottom: 34,
-  },
-  backButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#F2B53B',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 13,
-    elevation: 3,
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    marginTop: 22,
-    paddingBottom: 34,
-    gap: 29,
-  },
-  title: {
-    fontSize: 38,
-    lineHeight: 44,
-    fontWeight: '600',
-    color: '#070707',
-  },
-  subtitle: {
-    marginTop: 8,
-    maxWidth: 340,
-    fontSize: 17,
-    lineHeight: 23,
-    color: '#92929A',
-  },
-  panel: {
-    backgroundColor: '#FFFFFF',
-    gap: 32,
-  },
   section: {
-    gap: 10,
+    gap: space.sm,
   },
-  heading: {
-    fontSize: 22,
-    lineHeight: 24,
-    fontWeight: '700',
-    color: '#080808',
-  },
-  subheading: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '500',
-    color: '#66666D',
-  },
-  lineInput: {
-    minHeight: 54,
-    fontSize: 23,
-    lineHeight: 30,
-    color: '#111111',
-    borderBottomWidth: 1,
-    borderBottomColor: '#373737',
-    paddingVertical: 8,
-  },
-  suggestionList: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#EFE2BE',
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-  },
-  suggestionItem: {
-    minHeight: 48,
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F4EDD9',
+    justifyContent: 'space-between',
+  },
+  suggestionList: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  suggestionDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  suggestionPressed: {
+    backgroundColor: colors.surfaceRaised,
   },
   suggestionText: {
     flex: 1,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '600',
-    color: '#2A2230',
-  },
-  lookupText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '600',
-    color: '#8A7A56',
   },
   mapShell: {
-    height: 260,
+    height: 220,
+    borderRadius: radius.lg,
     overflow: 'hidden',
-    borderRadius: 18,
-    backgroundColor: '#EFEFEF',
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   map: {
     flex: 1,
   },
-  mapFallback: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 20,
-  },
-  mapFallbackText: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-    color: '#6C5A30',
-    textAlign: 'center',
-  },
   mapControls: {
     position: 'absolute',
-    right: 12,
-    top: 12,
-    gap: 8,
+    right: space.sm,
+    bottom: space.sm,
+    gap: space.xs,
   },
-  mapControlButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
+  mapFallback: {
+    flex: 1,
     alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.14,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  coordinateSummary: {
-    minHeight: 38,
     justifyContent: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E1E1E5',
-  },
-  coordinateSummaryText: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '600',
-    color: '#66666D',
-  },
-  errorText: {
-    fontSize: 14,
-    lineHeight: 18,
-    color: '#B42318',
-  },
-  nextButton: {
-    alignSelf: 'flex-end',
-    minWidth: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: '#FCAD00',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-  },
-  nextButtonDisabled: {
-    opacity: 0.45,
-  },
-  generatingText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    gap: space.xs,
   },
 });

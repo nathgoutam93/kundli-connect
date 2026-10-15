@@ -1,17 +1,14 @@
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import WheelPicker from '@quidone/react-native-wheel-picker';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import {
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { OnboardingStep } from '@/components/onboarding-step';
+import { AppText } from '@/components/ui/app-text';
+import { BottomSheet } from '@/components/ui/bottom-sheet';
+import { Card } from '@/components/ui/card';
+import { colors, fontFamily, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
 const MIN_BIRTH_YEAR = 1900;
@@ -143,12 +140,15 @@ function GroupedInputRow({
                             : styles.groupPartShort,
                     ]}>
                     <Pressable
-                        style={styles.inputBox}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.inputBox, pressed && styles.inputBoxPressed]}
                         onPress={() => onPressPart(index)}>
-                        <Text style={styles.inputBoxText}>{value}</Text>
+                        <AppText variant="title3">{value}</AppText>
                     </Pressable>
                     {showSeparator && index < values.length - 1 ? (
-                        <Text style={styles.separator}>{separatorChar}</Text>
+                        <AppText variant="title3" color={colors.textFaint}>
+                            {separatorChar}
+                        </AppText>
                     ) : null}
                 </View>
             ))}
@@ -231,10 +231,10 @@ export default function KundliDetailsScreen() {
         }
 
         if (activePicker.group === 'date') {
-            return ['Select Day', 'Select Month', 'Select Year'][activePicker.index] ?? '';
+            return ['Day of birth', 'Month of birth', 'Year of birth'][activePicker.index] ?? '';
         }
 
-        return ['Select Hour', 'Select Minute', 'Select Second'][activePicker.index] ?? '';
+        return ['Hour', 'Minute', 'Second'][activePicker.index] ?? '';
     }
 
     function getActivePickerOptions() {
@@ -299,278 +299,148 @@ export default function KundliDetailsScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
-            <View style={styles.keyboardContainer}>
-                <Pressable style={styles.backButton} onPress={() => router.back()}>
-                    <Ionicons name="chevron-back" size={27} color="#111111" />
-                </Pressable>
-
-                <ScrollView
-                    style={styles.content}
-                    contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}>
-                    <View>
-                        <Text style={styles.title}>Kundli Details</Text>
-                        <Text style={styles.subtitle}>
-                            Please input the correct details, it cannot be changed once generated.
-                        </Text>
+        <OnboardingStep
+            step="kundli-details"
+            title="Your birth details"
+            subtitle="Your Kundli is generated from these. Please double-check — they can’t be changed later."
+            onContinue={handleContinue}
+            canContinue={isFormValid}>
+            <Card style={styles.panel}>
+                <View style={styles.section}>
+                    <View style={styles.sectionLabel}>
+                        <Ionicons name="calendar-outline" size={16} color={colors.accent} />
+                        <AppText variant="overline" color={colors.textMuted}>
+                            Date of birth
+                        </AppText>
                     </View>
+                    <GroupedInputRow
+                        values={displayedDobParts}
+                        onPressPart={(index) => setActivePicker({ group: 'date', index })}
+                        showSeparator
+                        separatorChar="·"
+                        wideLastInput
+                    />
+                </View>
 
-                    <View style={styles.panel}>
-                        <View style={styles.section}>
-                            <Text style={styles.heading}>Your Date Of Birth</Text>
-                            <GroupedInputRow
-                                values={displayedDobParts}
-                                onPressPart={(index) => setActivePicker({ group: 'date', index })}
-                                showSeparator
-                                separatorChar="-"
-                                wideLastInput
-                            />
-                        </View>
+                <View style={styles.divider} />
 
-                        <View style={styles.section}>
-                            <Text style={styles.heading}>Your Birth Time</Text>
-                            <Text style={styles.subheading}>Please enter birth time in 24h format</Text>
-                            <GroupedInputRow
-                                values={timeParts}
-                                onPressPart={(index) => setActivePicker({ group: 'time', index })}
-                                showSeparator
-                                separatorChar=":"
-                            />
-                        </View>
+                <View style={styles.section}>
+                    <View style={styles.sectionLabel}>
+                        <Ionicons name="time-outline" size={16} color={colors.accent} />
+                        <AppText variant="overline" color={colors.textMuted}>
+                            Time of birth · 24h
+                        </AppText>
                     </View>
-                </ScrollView>
+                    <GroupedInputRow
+                        values={timeParts}
+                        onPressPart={(index) => setActivePicker({ group: 'time', index })}
+                        showSeparator
+                        separatorChar=":"
+                    />
+                </View>
+            </Card>
 
-                <Pressable
-                    style={[styles.nextButton, !isFormValid && styles.nextButtonDisabled]}
-                    onPress={handleContinue}
-                    disabled={!isFormValid}>
-                    <Ionicons name="chevron-forward" size={31} color="#FFFFFF" />
-                </Pressable>
-
-                <Modal
-                    transparent
-                    animationType="slide"
-                    visible={Boolean(activePicker)}
-                    onRequestClose={() => setActivePicker(null)}>
-                    <Pressable style={styles.sheetBackdrop} onPress={() => setActivePicker(null)} />
-                    <View style={styles.sheet}>
-                        <View style={styles.sheetHandle} />
-                        <View style={styles.sheetHeader}>
-                            <Text style={styles.sheetTitle}>{getActivePickerTitle()}</Text>
-                            <Pressable style={styles.sheetDoneButton} onPress={() => setActivePicker(null)}>
-                                <Text style={styles.sheetDoneText}>Done</Text>
-                            </Pressable>
-                        </View>
-                        <View style={styles.singlePickerFrame}>
-                            <WheelPicker
-                                data={getActivePickerOptions()}
-                                value={getActivePickerValue()}
-                                itemHeight={ITEM_HEIGHT}
-                                visibleItemCount={VISIBLE_ITEMS}
-                                enableScrollByTapOnItem
-                                onValueChanged={({ item }) => updateActivePickerValue(item.value)}
-                                width="100%"
-                                style={styles.singlePicker}
-                                itemTextStyle={styles.pickerText}
-                                overlayItemStyle={styles.centerSelection}
-                            />
-                        </View>
-                    </View>
-                </Modal>
+            <View style={styles.tip}>
+                <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
+                <AppText variant="footnote" color={colors.textMuted} style={styles.tipText}>
+                    An accurate birth time makes your chart and compatibility scores far more precise. Check your
+                    birth certificate if you can.
+                </AppText>
             </View>
-        </SafeAreaView>
+
+            <BottomSheet
+                visible={Boolean(activePicker)}
+                onClose={() => setActivePicker(null)}
+                title={getActivePickerTitle()}
+                doneLabel="Done">
+                <View style={styles.singlePickerFrame}>
+                    <WheelPicker
+                        data={getActivePickerOptions()}
+                        value={getActivePickerValue()}
+                        itemHeight={ITEM_HEIGHT}
+                        visibleItemCount={VISIBLE_ITEMS}
+                        enableScrollByTapOnItem
+                        onValueChanged={({ item }) => updateActivePickerValue(item.value)}
+                        width="100%"
+                        style={styles.singlePicker}
+                        itemTextStyle={styles.pickerText}
+                        overlayItemStyle={styles.centerSelection}
+                    />
+                </View>
+            </BottomSheet>
+        </OnboardingStep>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#FAFAFA',
-    },
-    keyboardContainer: {
-        flex: 1,
-        paddingHorizontal: 26,
-        paddingTop: 22,
-        paddingBottom: 34,
-    },
-    backButton: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#F2B53B',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.18,
-        shadowRadius: 13,
-        elevation: 3,
-    },
-    content: {
-        flex: 1,
-    },
-    scrollContent: {
-        marginTop: 22,
-        paddingBottom: 34,
-        gap: 29,
-    },
-    title: {
-        fontSize: 38,
-        lineHeight: 44,
-        fontWeight: '600',
-        color: '#070707',
-    },
-    subtitle: {
-        marginTop: 8,
-        maxWidth: 340,
-        fontSize: 17,
-        lineHeight: 23,
-        color: '#92929A',
-    },
     panel: {
-        backgroundColor: '#FFFFFF',
-        gap: 48,
+        gap: space.lg,
     },
     section: {
-        gap: 18,
+        gap: space.sm,
     },
-    heading: {
-        fontSize: 24,
-        lineHeight: 24,
-        fontWeight: '700',
-        color: '#080808',
+    sectionLabel: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.xs,
     },
-    subheading: {
-        fontSize: 14,
-        lineHeight: 16,
-        fontWeight: '500',
-        color: '#080808',
+    divider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.border,
     },
     groupRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        alignSelf: 'stretch',
-        flexWrap: 'nowrap',
-        width: '100%',
+        gap: space.xs,
     },
     groupPart: {
         flexDirection: 'row',
         alignItems: 'center',
-        minWidth: 0,
+        gap: space.xs,
     },
     groupPartShort: {
         flex: 1,
     },
     groupPartYear: {
-        flex: 1.45,
+        flex: 1.4,
     },
     inputBox: {
         flex: 1,
-        height: 64,
-        borderRadius: 14,
-        borderWidth: 1.5,
-        borderColor: '#E4E4EA',
-        backgroundColor: '#FBFBFC',
-        paddingHorizontal: 6,
-        minWidth: 0,
-        justifyContent: 'center',
+        minHeight: 56,
         alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceSunken,
     },
-    inputBoxText: {
-        fontSize: 24,
-        lineHeight: 28,
-        fontWeight: '700',
-        color: '#111111',
+    inputBoxPressed: {
+        borderColor: colors.accent,
     },
-    separator: {
-        width: 24,
-        marginHorizontal: 4,
-        fontSize: 34,
-        lineHeight: 40,
-        fontWeight: '700',
-        color: '#111111',
-        textAlign: 'center',
-    },
-    pickerText: {
-        fontSize: 20,
-        lineHeight: 24,
-        fontWeight: '700',
-        color: '#111111',
-    },
-    sheetBackdrop: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.28)',
-    },
-    sheet: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        backgroundColor: '#FFFFFF',
-        paddingHorizontal: 26,
-        paddingTop: 12,
-        paddingBottom: 34,
-    },
-    sheetHandle: {
-        alignSelf: 'center',
-        width: 44,
-        height: 5,
-        borderRadius: 3,
-        backgroundColor: '#E4E4EA',
-    },
-    sheetHeader: {
-        marginTop: 18,
+    tip: {
         flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        gap: space.xs,
+        paddingHorizontal: space.xxs,
     },
-    sheetTitle: {
-        fontSize: 20,
-        lineHeight: 24,
-        fontWeight: '700',
-        color: '#080808',
-    },
-    sheetDoneButton: {
-        minWidth: 66,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: '#FCAD00',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 16,
-    },
-    sheetDoneText: {
-        fontSize: 15,
-        lineHeight: 18,
-        fontWeight: '700',
-        color: '#FFFFFF',
+    tipText: {
+        flex: 1,
     },
     singlePickerFrame: {
-        height: ITEM_HEIGHT * VISIBLE_ITEMS,
-        marginTop: 18,
         overflow: 'hidden',
     },
     singlePicker: {
         width: '100%',
     },
+    pickerText: {
+        fontFamily: fontFamily.display,
+        fontSize: 24,
+        lineHeight: 30,
+        color: colors.text,
+    },
     centerSelection: {
-        borderRadius: 12,
-        backgroundColor: '#FFF4D8',
-    },
-    nextButton: {
-        alignSelf: 'flex-end',
-        width: 62,
-        height: 62,
-        borderRadius: 31,
-        backgroundColor: '#FCAD00',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    nextButtonDisabled: {
-        opacity: 0.45,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: colors.accentLine,
+        backgroundColor: colors.accentSoft,
     },
 });

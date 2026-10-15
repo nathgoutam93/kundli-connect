@@ -3,14 +3,17 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { OnboardingStep } from '@/components/onboarding-step';
+import { AppText } from '@/components/ui/app-text';
+import { colors, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
 const PHOTO_SLOTS = Array.from({ length: 6 }, (_, index) => index);
 const MIN_PHOTOS = 4;
 const MAX_PHOTOS = PHOTO_SLOTS.length;
+const GRID_GAP = space.xs;
 
 export default function PhotosScreen() {
   const { addProfilePhotos, isServiceBusy, profile, removeProfilePhoto } = useAppData();
@@ -19,7 +22,7 @@ export default function PhotosScreen() {
   const [uploadingPhotoUris, setUploadingPhotoUris] = useState<Set<string>>(() => new Set());
   const isUploadingPhotos = uploadingPhotoUris.size > 0;
   const canContinue = selectedPhotoUris.length >= MIN_PHOTOS && !isUploadingPhotos;
-  const slotSize = (width - 44 - 18) / 2;
+  const slotWidth = (width - gutter * 2 - GRID_GAP * 2) / 3;
 
   useEffect(() => {
     if (!isUploadingPhotos) {
@@ -94,201 +97,131 @@ export default function PhotosScreen() {
     router.push('/(onboarding)/bio');
   }
 
+  const remaining = MIN_PHOTOS - selectedPhotoUris.length;
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color="#101010" />
-        </Pressable>
+    <OnboardingStep
+      step="photos"
+      title="Show your best self"
+      subtitle={`Add at least ${MIN_PHOTOS} photos. Your first photo is the one people see first.`}
+      onContinue={handleContinue}
+      canContinue={canContinue && !isServiceBusy}>
+      <View style={styles.grid}>
+        {PHOTO_SLOTS.map((slot) => {
+          const photoUri = selectedPhotoUris[slot];
+          const isUploading = photoUri ? uploadingPhotoUris.has(photoUri) : false;
 
-        <View style={styles.header}>
-          <Text style={styles.title}>Pick your profile{'\n'}photos</Text>
-        </View>
+          return (
+            <Pressable
+              key={slot}
+              accessibilityRole="button"
+              accessibilityLabel={photoUri ? `Photo ${slot + 1}` : 'Add photo'}
+              style={[
+                styles.photoSlot,
+                { width: slotWidth, height: slotWidth * 1.3 },
+                !photoUri && styles.photoSlotEmpty,
+              ]}
+              onPress={isServiceBusy || isUploadingPhotos ? undefined : handlePickPhotos}>
+              {photoUri ? (
+                <>
+                  <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
+                  {slot === 0 ? (
+                    <View style={styles.mainBadge}>
+                      <AppText variant="caption" color={colors.onAccent}>
+                        Main
+                      </AppText>
+                    </View>
+                  ) : null}
+                  <Pressable
+                    accessibilityLabel="Remove photo"
+                    hitSlop={10}
+                    style={styles.removeBadge}
+                    onPress={() => handleRemovePhoto(photoUri)}
+                    disabled={isServiceBusy || isUploading}>
+                    <Ionicons name="close" size={14} color={colors.text} />
+                  </Pressable>
+                  {isUploading ? (
+                    <View style={styles.uploadOverlay}>
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <View style={styles.addIcon}>
+                  <Ionicons name="add" size={20} color={colors.accent} />
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
 
-        <View style={styles.grid}>
-          {PHOTO_SLOTS.map((slot) => {
-            const photoUri = selectedPhotoUris[slot];
-
-            return (
-              <Pressable
-                key={slot}
-                style={[styles.photoSlot, { width: slotSize, height: slotSize }]}
-                onPress={isServiceBusy || isUploadingPhotos ? undefined : handlePickPhotos}>
-                {photoUri ? (
-                  <>
-                    <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
-                    <Pressable
-                      accessibilityLabel="Remove photo"
-                      hitSlop={10}
-                      style={styles.removeBadge}
-                      onPress={() => handleRemovePhoto(photoUri)}
-                      disabled={isServiceBusy || uploadingPhotoUris.has(photoUri)}
-                    >
-                      <Ionicons name="close" size={12} color="#FFFFFF" />
-                    </Pressable>
-                    {uploadingPhotoUris.has(photoUri) ? (
-                      <View style={styles.uploadOverlay}>
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                        <Text style={styles.uploadText}>Uploading</Text>
-                      </View>
-                    ) : null}
-                  </>
-                ) : (
-                  <Text style={styles.addText}>+</Text>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.photoCountWrap}>
-          <Text style={[styles.photoCount, canContinue && styles.photoCountReady]}>
-            {selectedPhotoUris.length}/{MAX_PHOTOS} selected
-          </Text>
-          <Text style={styles.requiredText}>
-            {isUploadingPhotos
-              ? 'Uploading photos...'
-              : canContinue
-                ? 'Ready to continue'
-                : `${MIN_PHOTOS - selectedPhotoUris.length} more required to continue`}
-          </Text>
-        </View>
-      </ScrollView>
-
-      <Pressable
-        style={[styles.nextButton, !canContinue && styles.nextButtonDisabled]}
-        onPress={handleContinue}
-        disabled={!canContinue || isServiceBusy || isUploadingPhotos}
-      >
-        <Ionicons name="chevron-forward" size={31} color="#FFFFFF" />
-      </Pressable>
-    </SafeAreaView>
+      <AppText variant="subhead" color={canContinue ? colors.success : colors.textMuted} align="center">
+        {isUploadingPhotos
+          ? 'Uploading photos…'
+          : canContinue
+            ? `${selectedPhotoUris.length} of ${MAX_PHOTOS} added — looking good`
+            : `${remaining} more ${remaining === 1 ? 'photo' : 'photos'} to go`}
+      </AppText>
+    </OnboardingStep>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 22,
-    paddingTop: 30,
-    paddingBottom: 126,
-  },
-  backButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#F6B216',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
-    shadowRadius: 11,
-    elevation: 5,
-  },
-  header: {
-    marginTop: 24,
-  },
-  title: {
-    fontSize: 32,
-    lineHeight: 39,
-    fontWeight: '600',
-    color: '#090A0E',
-    letterSpacing: 0,
-  },
   grid: {
-    marginTop: 24,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 18,
+    gap: GRID_GAP,
   },
   photoSlot: {
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoSlotEmpty: {
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: '#FFD22C',
-    borderRadius: 15,
-    backgroundColor: '#FFFBEF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
+    borderColor: colors.borderStrong,
   },
   photoPreview: {
-    width: '100%',
-    height: '100%',
+    ...StyleSheet.absoluteFillObject,
   },
-  addText: {
-    fontSize: 40,
-    lineHeight: 40,
-    fontWeight: '300',
-    color: '#B6B2AA',
-    textAlign: 'center',
-    transform: [{ translateY: -2 }],
+  addIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft,
+  },
+  mainBadge: {
+    position: 'absolute',
+    left: space.xs,
+    bottom: space.xs,
+    paddingHorizontal: space.xs,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
   },
   removeBadge: {
     position: 'absolute',
-    top: 7,
-    right: 7,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(9, 10, 14, 0.72)',
+    top: space.xs,
+    right: space.xs,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
   },
   uploadOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(9, 10, 14, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-  },
-  uploadText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  photoCountWrap: {
-    marginTop: 17,
-    gap: 4,
-  },
-  photoCount: {
-    fontSize: 15,
-    lineHeight: 18,
-    fontWeight: '700',
-    color: '#D89400',
-    letterSpacing: 0,
-  },
-  photoCountReady: {
-    color: '#268B45',
-  },
-  requiredText: {
-    fontSize: 14,
-    lineHeight: 17,
-    color: '#85858D',
-    letterSpacing: 0,
-  },
-  nextButton: {
-    position: 'absolute',
-    right: 18,
-    bottom: 39,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#F7B000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  nextButtonDisabled: {
-    backgroundColor: '#D8D2C8',
+    backgroundColor: colors.scrim,
   },
 });

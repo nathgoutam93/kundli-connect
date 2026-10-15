@@ -1,10 +1,21 @@
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
-import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
+import { OnboardingStep } from '@/components/onboarding-step';
+import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { colors, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
+
+const NOTIFICATION_TYPES = [
+  { icon: 'heart', label: 'When someone likes you' },
+  { icon: 'sparkles', label: 'When it’s a match' },
+  { icon: 'chatbubble-ellipses', label: 'New messages' },
+] as const;
 
 export default function NotificationsScreen() {
   const { completeOnboarding } = useAppData();
@@ -42,116 +53,50 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <Ionicons name="chevron-back" size={27} color="#111111" />
-      </Pressable>
-
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Your destiny might message anytime, Dont Miss It!</Text>
-
-        <View style={styles.optionGroup}>
-          <Pressable
-            style={[styles.primaryOption, isRegistering && styles.disabledOption]}
-            disabled={isRegistering}
-            onPress={handleEnableNotifications}>
-            <Text style={styles.optionText}>{isRegistering ? 'Turning On...' : 'Turn On Notifications'}</Text>
-          </Pressable>
-
-          <Pressable style={styles.secondaryOption} disabled={isRegistering} onPress={handleContinue}>
-            <Text style={styles.optionText}>Miss Out Notifications</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-
-      <Pressable style={styles.nextButton} onPress={handleContinue}>
-        <Ionicons name="chevron-forward" size={31} color="#FFFFFF" />
-      </Pressable>
-
-    </View>
+    <OnboardingStep
+      step="notifications"
+      title="Don’t miss your destiny"
+      subtitle="Your match might message at any moment. We’ll only notify you about what matters."
+      footer={
+        <>
+          <Button
+            label="Turn on notifications"
+            icon="notifications"
+            loading={isRegistering}
+            onPress={handleEnableNotifications}
+          />
+          <Button label="Not now" variant="ghost" size="md" disabled={isRegistering} onPress={handleContinue} />
+        </>
+      }>
+      <Card style={styles.card}>
+        {NOTIFICATION_TYPES.map((item) => (
+          <View key={item.label} style={styles.row}>
+            <View style={styles.iconWrap}>
+              <Ionicons name={item.icon} size={18} color={colors.accent} />
+            </View>
+            <AppText variant="bodyStrong">{item.label}</AppText>
+          </View>
+        ))}
+      </Card>
+    </OnboardingStep>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFCF7',
+  card: {
+    gap: space.md,
   },
-  backButton: {
-    position: 'absolute',
-    zIndex: 2,
-    top: 93,
-    left: 27,
-    width: 47,
-    height: 47,
-    borderRadius: 24,
-    backgroundColor: '#FFFCF7',
-    borderWidth: 1,
-    borderColor: '#FBD06D',
-    justifyContent: 'center',
+  row: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#FCAD00',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.2,
-    shadowRadius: 9,
-    elevation: 4,
+    gap: space.sm,
   },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 27,
-    paddingTop: 150,
-    paddingBottom: 128,
-  },
-  title: {
-    maxWidth: 360,
-    fontSize: 38,
-    lineHeight: 46,
-    fontWeight: '500',
-    color: '#050505',
-  },
-  optionGroup: {
-    marginTop: 36,
-    gap: 12,
-  },
-  primaryOption: {
-    height: 55,
-    borderRadius: 16,
-    backgroundColor: '#FFD016',
-    justifyContent: 'center',
-    paddingHorizontal: 17,
-  },
-  secondaryOption: {
-    height: 55,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#FFC400',
-    backgroundColor: '#FFF8E8',
-    justifyContent: 'center',
-    paddingHorizontal: 17,
-  },
-  disabledOption: {
-    opacity: 0.65,
-  },
-  optionText: {
-    fontSize: 19,
-    lineHeight: 23,
-    fontWeight: '400',
-    color: '#050505',
-  },
-  nextButton: {
-    position: 'absolute',
-    right: 19,
-    bottom: 40,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#FCAD00',
-    justifyContent: 'center',
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft,
   },
 });

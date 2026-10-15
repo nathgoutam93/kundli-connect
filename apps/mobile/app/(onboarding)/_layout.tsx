@@ -1,17 +1,14 @@
 import { Redirect, Stack } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { FullScreenLoader } from '@/components/ui/loader';
+import { colors } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
 export default function OnboardingLayout() {
   const { isHydrated, isAuthenticated, hasCompletedOnboarding } = useAppData();
 
   if (!isHydrated) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#2D241E" />
-      </View>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!isAuthenticated) {
@@ -22,14 +19,5 @@ export default function OnboardingLayout() {
     return <Redirect href="/(tabs)" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />;
 }
-
-const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F7F5F0',
-  },
-});

@@ -1,56 +1,54 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { AppText } from '@/components/ui/app-text';
+import { Avatar } from '@/components/ui/avatar';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Screen } from '@/components/ui/screen';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { colors, gutter, radius, space } from '@/constants/theme';
 import { type ChatPreview } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 
 export default function ChatsScreen() {
-  const insets = useSafeAreaInsets();
   const { chats } = useAppData();
-  const [isInitialLoading] = useState(false);
-  const displayedChats = isInitialLoading ? [] : chats;
-  const visibleChats = displayedChats.filter((chat) => !chat.hidden);
-  const hiddenMatches = displayedChats.filter((chat) => chat.hidden);
+  const visibleChats = chats.filter((chat) => !chat.hidden);
+  const hiddenMatches = chats.filter((chat) => chat.hidden);
 
   return (
-    <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: Math.max(insets.top + 28, 58), paddingBottom: insets.bottom + 28 },
-        ]}
-        showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Matches</Text>
-
-        {isInitialLoading ? (
-          <View style={styles.loader}>
-            <ActivityIndicator size="large" color="#2D241E" />
-          </View>
-        ) : (
-          <>
-            <MatchSection title="Your turn" count={visibleChats.length} matches={visibleChats} />
-            <MatchSection title="Hidden" count={hiddenMatches.length} matches={hiddenMatches} />
-          </>
-        )}
-      </ScrollView>
-    </View>
+    <Screen starSeed={9}>
+      <ScreenHeader onBack={false} largeTitle="Matches" />
+      {chats.length > 0 ? (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <MatchSection title="Conversations" matches={visibleChats} />
+          {hiddenMatches.length > 0 ? (
+            <MatchSection title="Hidden" matches={hiddenMatches} initiallyExpanded={false} />
+          ) : null}
+        </ScrollView>
+      ) : (
+        <EmptyState
+          icon="chatbubbles-outline"
+          title="No matches yet"
+          message="When you and someone else connect, your conversation will start here."
+        />
+      )}
+    </Screen>
   );
 }
 
 function MatchSection({
   title,
-  count,
   matches,
+  initiallyExpanded = true,
 }: {
   title: string;
-  count: number;
   matches: ChatPreview[];
+  initiallyExpanded?: boolean;
 }) {
   const router = useRouter();
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
 
   return (
     <View style={styles.section}>
@@ -58,34 +56,57 @@ function MatchSection({
         accessibilityRole="button"
         accessibilityState={{ expanded: isExpanded }}
         onPress={() => setIsExpanded((current) => !current)}
-        style={({ pressed }) => [styles.sectionHeader, pressed && styles.rowPressed]}>
-        <Text style={styles.sectionTitle}>
-          {title} ({count})
-        </Text>
-        <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={20} color="#191614" />
+        style={styles.sectionHeader}>
+        <AppText variant="overline" color={colors.textMuted}>
+          {title} · {matches.length}
+        </AppText>
+        <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={16} color={colors.textMuted} />
       </Pressable>
 
       {isExpanded ? (
         <View style={styles.list}>
-          {matches.map((match) => (
-            <Pressable
-              key={match.id}
-              onPress={() => router.push(`/chat/${match.id}`)}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-              <Image source={{ uri: match.avatarUrl }} style={styles.avatar} />
-              <View style={styles.rowText}>
-                <Text style={styles.name}>{match.name}</Text>
-                <Text numberOfLines={1} style={styles.message}>
-                  {match.lastMessage}
-                </Text>
-              </View>
-              {match.unreadCount > 0 ? (
-                <View style={styles.unreadBadge}>
-                  <Text style={styles.unreadText}>{match.unreadCount}</Text>
+          {matches.map((match, index) => {
+            const hasUnread = match.unreadCount > 0;
+
+            return (
+              <Pressable
+                key={match.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Chat with ${match.name}${hasUnread ? `, ${match.unreadCount} unread` : ''}`}
+                onPress={() => router.push(`/chat/${match.id}`)}
+                style={({ pressed }) => [styles.row, index > 0 && styles.rowDivider, pressed && styles.rowPressed]}>
+                <Avatar uri={match.avatarUrl} name={match.name} size={56} ring={hasUnread ? colors.accent : null} />
+                <View style={styles.rowText}>
+                  <View style={styles.rowTitle}>
+                    <AppText variant="headline" numberOfLines={1} style={styles.name}>
+                      {match.name}
+                    </AppText>
+                    {match.compatibilityScore ? (
+                      <View style={styles.scoreTag}>
+                        <Ionicons name="sparkles" size={10} color={colors.accent} />
+                        <AppText variant="caption" color={colors.accent}>
+                          {match.compatibilityScore}%
+                        </AppText>
+                      </View>
+                    ) : null}
+                  </View>
+                  <AppText
+                    variant="callout"
+                    numberOfLines={1}
+                    color={hasUnread ? colors.text : colors.textMuted}>
+                    {match.lastMessage || 'Say hello 👋'}
+                  </AppText>
                 </View>
-              ) : null}
-            </Pressable>
-          ))}
+                {hasUnread ? (
+                  <View style={styles.unreadBadge}>
+                    <AppText variant="caption" color={colors.onAccent}>
+                      {match.unreadCount}
+                    </AppText>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -93,98 +114,69 @@ function MatchSection({
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
   content: {
-    paddingHorizontal: 24,
-  },
-  title: {
-    color: '#171412',
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: 0,
-    marginBottom: 28,
+    paddingHorizontal: gutter,
+    paddingBottom: space.xxl,
+    gap: space.lg,
   },
   section: {
-    marginBottom: 22,
-  },
-  loader: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 220,
-    paddingVertical: 32,
+    gap: space.xs,
   },
   sectionHeader: {
-    alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-    minHeight: 34,
-  },
-  sectionTitle: {
-    color: '#201C19',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0,
+    alignItems: 'center',
+    gap: space.xxs,
+    paddingVertical: space.xs,
   },
   list: {
-    borderTopColor: '#EEEAE6',
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
   },
   row: {
-    alignItems: 'center',
-    borderBottomColor: '#EEEAE6',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    display: 'flex',
     flexDirection: 'row',
-    minHeight: 94,
-    paddingVertical: 14,
-    width: '100%',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  rowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   rowPressed: {
-    opacity: 0.65,
-  },
-  avatar: {
-    backgroundColor: '#EFEAE5',
-    borderRadius: 31,
-    height: 62,
-    marginRight: 16,
-    width: 62,
+    backgroundColor: colors.surfaceRaised,
   },
   rowText: {
     flex: 1,
-    minWidth: 0,
+    gap: 2,
+  },
+  rowTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
   },
   name: {
-    color: '#2B2622',
     flexShrink: 1,
-    fontSize: 19,
-    fontWeight: '500',
-    letterSpacing: 0,
-    marginBottom: 7,
   },
-  message: {
-    color: '#1E1A17',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0,
-    lineHeight: 19,
+  scoreTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentSoft,
   },
   unreadBadge: {
-    alignItems: 'center',
-    backgroundColor: '#7D2B76',
-    borderRadius: 12,
-    height: 24,
-    justifyContent: 'center',
-    marginLeft: 10,
-    minWidth: 24,
+    minWidth: 22,
+    height: 22,
     paddingHorizontal: 6,
-  },
-  unreadText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
   },
 });

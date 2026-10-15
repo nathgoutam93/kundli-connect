@@ -1,13 +1,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
+import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Screen } from '@/components/ui/screen';
+import { ScreenHeader } from '@/components/ui/screen-header';
+import { colors, fontFamily, gutter, palette, radius, space } from '@/constants/theme';
 import { type SubscriptionPlan } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 
 export default function SubscriptionsScreen() {
-  const insets = useSafeAreaInsets();
   const {
     creditHistory,
     creditsBalance,
@@ -20,68 +24,94 @@ export default function SubscriptionsScreen() {
   } = useAppData();
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: Math.max(insets.top + 18, 42), paddingBottom: insets.bottom + 34 },
-      ]}
-      showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>Billing</Text>
-          <Text style={styles.title}>Premium</Text>
+    <Screen starSeed={31}>
+      <ScreenHeader backIcon="close" />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.intro}>
+          <AppText variant="overline" color={colors.accent}>
+            Kundali Konnect Premium
+          </AppText>
+          <AppText variant="title1">Let the stars work harder for you</AppText>
         </View>
-        <Pressable style={styles.closeButton} onPress={() => router.back()}>
-          <Ionicons name="close" size={22} color="#2D241E" />
-        </Pressable>
-      </View>
 
-      <View style={styles.balanceCard}>
-        <View>
-          <Text style={styles.balanceLabel}>Credits</Text>
-          <Text style={styles.balance}>{creditsBalance}</Text>
-        </View>
-        <Pressable disabled={isServiceBusy} style={styles.creditButton} onPress={() => purchaseCredits(10)}>
-          <Ionicons name="add" size={18} color="#2D241E" />
-          <Text style={styles.creditButtonText}>10</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.plans}>
-        {subscriptionPlans.map((plan) => (
-          <PlanCard
-            key={plan.id}
-            isActive={subscription.planId === plan.id}
-            isBusy={isServiceBusy}
-            onSelect={() => purchaseSubscription(plan.id)}
-            plan={plan}
+        <View style={styles.balanceCard}>
+          <LinearGradient
+            colors={[palette.midnight700, palette.midnight800]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
           />
-        ))}
-      </View>
-
-      <Pressable disabled={isServiceBusy} style={styles.restoreButton} onPress={restorePurchases}>
-        <Text style={styles.restoreText}>
-          {subscription.restoredAt ? `Restored ${new Date(subscription.restoredAt).toLocaleTimeString()}` : 'Restore purchases'}
-        </Text>
-      </Pressable>
-
-      <Text style={styles.sectionTitle}>Credit history</Text>
-      <View style={styles.history}>
-        {creditHistory.map((item) => (
-          <View key={item.id} style={styles.historyRow}>
-            <View style={styles.historyText}>
-              <Text style={styles.historyTitle}>{item.title}</Text>
-              <Text style={styles.historyMeta}>Balance after: {item.balanceAfter}</Text>
+          <View style={styles.balanceCopy}>
+            <AppText variant="overline" color={colors.textMuted}>
+              Your credits
+            </AppText>
+            <View style={styles.balanceRow}>
+              <Ionicons name="flash" size={22} color={colors.accent} />
+              <AppText style={styles.balance}>{creditsBalance}</AppText>
             </View>
-            <Text style={[styles.amount, item.amount > 0 ? styles.amountPositive : styles.amountNegative]}>
-              {item.amount > 0 ? '+' : ''}
-              {item.amount}
-            </Text>
+            <AppText variant="footnote" color={colors.textFaint}>
+              1 credit per match score or like
+            </AppText>
           </View>
-        ))}
-      </View>
-    </ScrollView>
+          <Button
+            label="Add 10"
+            icon="add"
+            size="md"
+            fullWidth={false}
+            disabled={isServiceBusy}
+            onPress={() => purchaseCredits(10)}
+          />
+        </View>
+
+        <View style={styles.plans}>
+          {subscriptionPlans.map((plan) => (
+            <PlanCard
+              key={plan.id}
+              isActive={subscription.planId === plan.id}
+              isBusy={isServiceBusy}
+              onSelect={() => purchaseSubscription(plan.id)}
+              plan={plan}
+            />
+          ))}
+        </View>
+
+        <Button
+          label={
+            subscription.restoredAt
+              ? `Restored ${new Date(subscription.restoredAt).toLocaleTimeString()}`
+              : 'Restore purchases'
+          }
+          variant="ghost"
+          size="md"
+          disabled={isServiceBusy}
+          onPress={restorePurchases}
+        />
+
+        {creditHistory.length > 0 ? (
+          <View style={styles.historySection}>
+            <AppText variant="overline" color={colors.textMuted} style={styles.sectionTitle}>
+              Credit history
+            </AppText>
+            <View style={styles.history}>
+              {creditHistory.map((item, index) => (
+                <View key={item.id} style={[styles.historyRow, index > 0 && styles.historyDivider]}>
+                  <View style={styles.historyText}>
+                    <AppText variant="subhead">{item.title}</AppText>
+                    <AppText variant="caption" color={colors.textFaint}>
+                      Balance after: {item.balanceAfter}
+                    </AppText>
+                  </View>
+                  <AppText variant="headline" color={item.amount > 0 ? colors.success : colors.textMuted}>
+                    {item.amount > 0 ? '+' : ''}
+                    {item.amount}
+                  </AppText>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+      </ScrollView>
+    </Screen>
   );
 }
 
@@ -96,251 +126,156 @@ function PlanCard({
   onSelect: () => void;
   plan: SubscriptionPlan;
 }) {
+  const isFeatured = Boolean(plan.badge);
+
   return (
-    <View style={[styles.planCard, isActive && styles.planCardActive]}>
+    <Card tone={isFeatured || isActive ? 'accent' : 'default'} style={styles.planCard}>
       <View style={styles.planHeader}>
-        <View>
+        <View style={styles.planTitle}>
           <View style={styles.planNameRow}>
-            <Text style={styles.planName}>{plan.name}</Text>
-            {plan.badge ? <Text style={styles.badge}>{plan.badge}</Text> : null}
+            <AppText variant="title3">{plan.name}</AppText>
+            {plan.badge ? (
+              <View style={styles.badge}>
+                <AppText variant="caption" color={colors.onAccent}>
+                  {plan.badge}
+                </AppText>
+              </View>
+            ) : null}
           </View>
-          <Text style={styles.price}>
-            {plan.priceLabel} <Text style={styles.cadence}>/ {plan.cadence}</Text>
-          </Text>
+          <AppText>
+            <AppText style={styles.price}>{plan.priceLabel}</AppText>
+            <AppText variant="subhead" color={colors.textMuted}>
+              {' '}
+              / {plan.cadence}
+            </AppText>
+          </AppText>
         </View>
-        {isActive ? <Ionicons name="checkmark-circle" size={24} color="#1F8F5F" /> : null}
+        {isActive ? <Ionicons name="checkmark-circle" size={26} color={colors.success} /> : null}
       </View>
       <View style={styles.features}>
         {plan.features.map((feature) => (
           <View key={feature} style={styles.featureRow}>
-            <Ionicons name="checkmark" size={16} color="#1F8F5F" />
-            <Text style={styles.featureText}>{feature}</Text>
+            <Ionicons name="sparkles" size={14} color={colors.accent} />
+            <AppText variant="callout">{feature}</AppText>
           </View>
         ))}
+        {plan.creditBonus ? (
+          <View style={styles.featureRow}>
+            <Ionicons name="flash" size={14} color={colors.accent} />
+            <AppText variant="callout">{plan.creditBonus} bonus credits</AppText>
+          </View>
+        ) : null}
       </View>
-      <Pressable disabled={isBusy || isActive} style={[styles.planButton, isActive && styles.planButtonActive]} onPress={onSelect}>
-        <Text style={[styles.planButtonText, isActive && styles.planButtonActiveText]}>
-          {isActive ? 'Current plan' : 'Choose plan'}
-        </Text>
-      </Pressable>
-    </View>
+      <Button
+        label={isActive ? 'Current plan' : `Choose ${plan.name}`}
+        variant={isActive ? 'secondary' : isFeatured ? 'primary' : 'secondary'}
+        disabled={isBusy || isActive}
+        onPress={onSelect}
+      />
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
   content: {
-    paddingHorizontal: 22,
+    paddingHorizontal: gutter,
+    paddingTop: space.md,
+    paddingBottom: space.huge,
+    gap: space.lg,
   },
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  eyebrow: {
-    color: '#8A7B70',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  title: {
-    color: '#171412',
-    fontSize: 30,
-    fontWeight: '800',
-  },
-  closeButton: {
-    alignItems: 'center',
-    backgroundColor: '#F5F1EC',
-    borderRadius: 20,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+  intro: {
+    gap: space.xs,
   },
   balanceCard: {
-    alignItems: 'center',
-    backgroundColor: '#2D241E',
-    borderRadius: 8,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 18,
+    gap: space.md,
+    padding: space.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    overflow: 'hidden',
   },
-  balanceLabel: {
-    color: '#D8D0C8',
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+  balanceCopy: {
+    gap: 2,
+    flexShrink: 1,
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xxs,
   },
   balance: {
-    color: '#FFFFFF',
-    fontSize: 42,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  creditButton: {
-    alignItems: 'center',
-    backgroundColor: '#F6D36B',
-    borderRadius: 22,
-    flexDirection: 'row',
-    gap: 4,
-    minHeight: 44,
-    paddingHorizontal: 14,
-  },
-  creditButtonText: {
-    color: '#2D241E',
-    fontSize: 15,
-    fontWeight: '900',
+    fontFamily: fontFamily.display,
+    fontSize: 40,
+    lineHeight: 46,
+    color: colors.text,
   },
   plans: {
-    gap: 14,
-    marginTop: 18,
+    gap: space.md,
   },
   planCard: {
-    borderColor: '#EEE5DA',
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 16,
-  },
-  planCardActive: {
-    borderColor: '#7D2B76',
+    gap: space.md,
   },
   planHeader: {
-    alignItems: 'flex-start',
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
+  },
+  planTitle: {
+    gap: space.xxs,
   },
   planNameRow: {
-    alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
-  },
-  planName: {
-    color: '#201C19',
-    fontSize: 22,
-    fontWeight: '900',
+    alignItems: 'center',
+    gap: space.xs,
   },
   badge: {
-    backgroundColor: '#F6D36B',
-    borderRadius: 10,
-    color: '#2D241E',
-    fontSize: 11,
-    fontWeight: '900',
-    overflow: 'hidden',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: space.xs,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
   },
   price: {
-    color: '#201C19',
-    fontSize: 18,
-    fontWeight: '900',
-    marginTop: 8,
-  },
-  cadence: {
-    color: '#756A61',
-    fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fontFamily.display,
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.text,
   },
   features: {
-    gap: 8,
-    marginTop: 16,
+    gap: space.xs,
   },
   featureRow: {
-    alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
-  },
-  featureText: {
-    color: '#4D443D',
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  planButton: {
     alignItems: 'center',
-    backgroundColor: '#2D241E',
-    borderRadius: 8,
-    justifyContent: 'center',
-    marginTop: 16,
-    minHeight: 46,
+    gap: space.xs,
   },
-  planButtonActive: {
-    backgroundColor: '#F5F1EC',
-  },
-  planButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  planButtonActiveText: {
-    color: '#2D241E',
-  },
-  restoreButton: {
-    alignItems: 'center',
-    borderColor: '#D8CEC4',
-    borderRadius: 8,
-    borderWidth: 1,
-    justifyContent: 'center',
-    marginTop: 14,
-    minHeight: 48,
-  },
-  restoreText: {
-    color: '#2D241E',
-    fontSize: 15,
-    fontWeight: '900',
+  historySection: {
+    gap: space.xs,
   },
   sectionTitle: {
-    color: '#2D241E',
-    fontSize: 16,
-    fontWeight: '900',
-    marginBottom: 10,
-    marginTop: 24,
+    paddingHorizontal: space.xxs,
   },
   history: {
-    borderColor: '#EEE5DA',
-    borderRadius: 8,
+    paddingHorizontal: space.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    overflow: 'hidden',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   historyRow: {
-    alignItems: 'center',
-    borderBottomColor: '#EEE5DA',
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 60,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    minHeight: 64,
-    paddingHorizontal: 14,
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  historyDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   historyText: {
     flex: 1,
-    minWidth: 0,
-  },
-  historyTitle: {
-    color: '#27221E',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  historyMeta: {
-    color: '#766B62',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  amount: {
-    fontSize: 15,
-    fontWeight: '900',
-    marginLeft: 12,
-  },
-  amountPositive: {
-    color: '#1F8F5F',
-  },
-  amountNegative: {
-    color: '#A83B30',
+    gap: 2,
   },
 });
