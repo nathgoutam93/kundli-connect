@@ -1,7 +1,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { DEFAULT_PROFILE } from '@/constants/mock-data';
-import { type ChatPreview, type LikeItem } from '@/constants/mock-data';
+import { type ChatMessage, type ChatPreview, type LikeItem } from '@/constants/mock-data';
+import {
+  appendMessage,
+  applyMessageToPreviews,
+  reconcileSentMessage,
+  removeMessage,
+  type MessagePages,
+} from '@/lib/chat-cache';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
 import {
@@ -30,6 +37,7 @@ import {
   getCurrentUserKundliSummary,
   getCurrentUserProfile,
   getDiscoverProfiles,
+  KUNDLI_CHART_URL_TTL_SECONDS,
   getPendingIncomingLikes,
   markChatRead,
   replyToLike,
@@ -64,8 +72,8 @@ export function useKundliQuery() {
     queryKey: queryKeys.kundli(user?.id ?? 'anonymous'),
     queryFn: getCurrentUserKundliSummary,
     enabled: Boolean(user),
-    staleTime: Infinity,
-    gcTime: Infinity,
+    // Chart images use signed URLs; refetch before they expire rather than caching forever.
+    staleTime: (KUNDLI_CHART_URL_TTL_SECONDS - 10 * 60) * 1000,
   });
 }
 
@@ -86,7 +94,7 @@ export function useSentLikesQuery() {
 
 export function useChatsQuery() {
   const { user } = useAuth();
-  return useQuery({ queryKey: queryKeys.chatPreviews(user?.id ?? 'anonymous'), queryFn: () => getChats(1), enabled: Boolean(user) });
+  return useQuery({ queryKey: queryKeys.chatPreviews(user?.id ?? 'anonymous'), queryFn: getChats, enabled: Boolean(user) });
 }
 
 export function useChatMessagesInfiniteQuery(chatId: string) {
@@ -127,7 +135,7 @@ export function useDomainMutations() {
     }),
     generateKundli: useMutation({
       mutationFn: generateCurrentUserKundli,
-      onSuccess: () => invalidate(queryKeys.profile(id)),
+      onSuccess: () => invalidate(queryKeys.profile(id), queryKeys.kundli(id)),
     }),
     generateCompatibility: useMutation({ mutationFn: generateMatchScore }),
     passProfile: useMutation({
@@ -161,27 +169,31 @@ export function useDomainMutations() {
       onSettled: () => invalidate(queryKeys.incomingLikes(id)),
     }),
     sendMessage: useMutation({
-      mutationFn: ({ chatId, text }: { chatId: string; text: string }) => sendMessage(chatId, text),
-      onMutate: async ({ chatId, text }) => {
-        await client.cancelQueries({ queryKey: queryKeys.chatPreviews(id) });
-        const previous = client.getQueryData<ChatPreview[]>(queryKeys.chatPreviews(id));
-        client.setQueryData<ChatPreview[]>(queryKeys.chatPreviews(id), (chats = []) =>
-          chats.map((chat) =>
-            chat.id === chatId
-              ? {
-                  ...chat,
-                  lastMessage: text,
-                  updatedAt: new Date().toISOString(),
-                  messages: [...chat.messages, { id: `pending-${Date.now()}`, createdAt: new Date().toISOString(), senderId: 'me', text, status: 'sent' }],
-                }
-              : chat
-          )
-        );
-        return { previous };
+      mutationFn: ({ chatId, text }: { chatId: string; text: string; pending: ChatMessage }) => sendMessage(chatId, text),
+      // Show the message immediately; Realtime or the response then swaps in the saved copy.
+      onMutate: async ({ chatId, pending }) => {
+        const messagesKey = queryKeys.chatMessages(id, chatId);
+        await Promise.all([
+          client.cancelQueries({ queryKey: messagesKey }),
+          client.cancelQueries({ queryKey: queryKeys.chatPreviews(id) }),
+        ]);
+        const previousPreviews = client.getQueryData<ChatPreview[]>(queryKeys.chatPreviews(id));
+        client.setQueryData<MessagePages>(messagesKey, (data) => appendMessage(data, pending));
+        const previews = applyMessageToPreviews(previousPreviews, chatId, pending);
+        if (previews) {
+          client.setQueryData(queryKeys.chatPreviews(id), previews);
+        }
+        return { previousPreviews };
       },
-      onError: (_error, _variables, context) => client.setQueryData(queryKeys.chatPreviews(id), context?.previous),
-      onSettled: (_data, _error, variables) =>
-        invalidate(queryKeys.chatPreviews(id), queryKeys.chatMessages(id, variables.chatId)),
+      onSuccess: (saved, { chatId, pending }) => {
+        client.setQueryData<MessagePages>(queryKeys.chatMessages(id, chatId), (data) =>
+          reconcileSentMessage(data, pending.id, saved)
+        );
+      },
+      onError: (_error, { chatId, pending }, context) => {
+        client.setQueryData<MessagePages>(queryKeys.chatMessages(id, chatId), (data) => removeMessage(data, pending.id));
+        client.setQueryData(queryKeys.chatPreviews(id), context?.previousPreviews);
+      },
     }),
     markRead: useMutation({
       mutationFn: markChatRead,

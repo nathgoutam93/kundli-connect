@@ -1,5 +1,5 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.46.1";
+import { HttpError, jsonResponse, readJson, requiredEnv, servePost } from "../_shared/http.ts";
+import { getRequestContext, orderedPair } from "../_shared/supabase.ts";
 
 type ProfileBirthDetails = {
   id: string;
@@ -33,28 +33,6 @@ type MatchScoreRow = {
   compatibility_report: CompatibilityResult;
   raw_report: Record<string, unknown>;
 };
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return Response.json(body, {
-    status,
-    headers: corsHeaders,
-  });
-}
-
-function requiredEnv(name: string) {
-  const value = Deno.env.get(name);
-  if (!value) {
-    throw new Error(`Missing ${name} secret.`);
-  }
-  return value;
-}
 
 function splitDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -207,7 +185,10 @@ function parseMatchReport(
     id: `compat-${profileId}-${Date.now()}`,
     generatedAt: new Date().toISOString(),
     overallScore,
-    summary: matchReport,
+    summary:
+      matchReport ??
+      firstString(conclusion ?? {}, ["report", "description"]) ??
+      `Guna Milan score ${totalReceived.toFixed(1)} out of ${totalPossible.toFixed(1)}.`,
     yogas: [
       `Guna ${totalReceived.toFixed(1)}/${totalPossible.toFixed(1)}`,
       ...(overallScore >= 70 ? ["Strong Ashtakoota"] : ["Moderate Ashtakoota"]),
@@ -278,89 +259,42 @@ function buildMatchBody(
   };
 }
 
-function orderedPair(firstUserId: string, secondUserId: string) {
-  return firstUserId < secondUserId
-    ? { userAId: firstUserId, userBId: secondUserId }
-    : { userAId: secondUserId, userBId: firstUserId };
-}
+const profileColumns =
+  "id, gender, display_name, date_of_birth, time_of_birth, birth_latitude, birth_longitude, birth_timezone";
 
-serve(async (request) => {
-  if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  if (request.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, 405);
-  }
-
-  let supabaseUrl: string;
-  let supabaseAnonKey: string;
-  let supabaseServiceRoleKey: string;
-  let astrologyUserId: string | undefined;
-  let astrologyApiKey: string;
-
-  try {
-    supabaseUrl = requiredEnv("SUPABASE_URL");
-    supabaseAnonKey = requiredEnv("SUPABASE_ANON_KEY");
-    supabaseServiceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-    astrologyUserId = Deno.env.get("ASTROLOGY_API_USER_ID");
-    astrologyApiKey = requiredEnv("ASTROLOGY_API_KEY");
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Missing Edge Function secret.";
-    return jsonResponse({ error: message }, 500);
-  }
-
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader) {
-    return jsonResponse({ error: "Missing Authorization header" }, 401);
-  }
-
-  let body: { targetProfileId?: string };
-
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
-  }
-
+servePost(async (request) => {
+  const body = await readJson<{ targetProfileId?: string }>(request);
   const targetProfileId = body.targetProfileId?.trim();
 
-  if (!targetProfileId) {
-    return jsonResponse({ error: "Missing targetProfileId" }, 400);
+  if (!targetProfileId) throw new HttpError(400, "Missing targetProfileId");
+
+  const astrologyApiKey = requiredEnv("ASTROLOGY_API_KEY");
+  const astrologyUserId = Deno.env.get("ASTROLOGY_API_USER_ID");
+  const { userId, userClient, adminClient } = await getRequestContext(request);
+
+  if (userId === targetProfileId) {
+    throw new HttpError(400, "Cannot generate a match score for yourself.");
   }
 
-  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+  const pair = orderedPair(userId, targetProfileId);
+  const [existingScoreResult, profilesResult] = await Promise.all([
+    adminClient
+      .from("match_scores")
+      .select("id, compatibility_report, raw_report")
+      .eq("user_a_id", pair.userAId)
+      .eq("user_b_id", pair.userBId)
+      .maybeSingle<MatchScoreRow>(),
+    adminClient
+      .from("profiles")
+      .select(profileColumns)
+      .in("id", [userId, targetProfileId])
+      .returns<ProfileBirthDetails[]>(),
+  ]);
 
-  const {
-    data: { user },
-    error: userError,
-  } = await authClient.auth.getUser();
+  if (existingScoreResult.error) throw existingScoreResult.error;
+  if (profilesResult.error) throw profilesResult.error;
 
-  if (userError || !user) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  if (user.id === targetProfileId) {
-    return jsonResponse({ error: "Cannot generate a match score for yourself." }, 400);
-  }
-
-  const pair = orderedPair(user.id, targetProfileId);
-
-  const { data: existingScore, error: existingScoreError } = await adminClient
-    .from("match_scores")
-    .select("id, compatibility_report, raw_report")
-    .eq("user_a_id", pair.userAId)
-    .eq("user_b_id", pair.userBId)
-    .maybeSingle<MatchScoreRow>();
-
-  if (existingScoreError) {
-    return jsonResponse({ error: existingScoreError.message }, 500);
-  }
-
+  const existingScore = existingScoreResult.data;
   if (existingScore?.compatibility_report) {
     return jsonResponse({
       matchScoreId: existingScore.id,
@@ -369,52 +303,26 @@ serve(async (request) => {
     });
   }
 
-  const { data: allowed, error: creditError } = await authClient.rpc(
-    "spend_credit",
-    { p_reason: `Generated compatibility with ${targetProfileId}` },
-  );
-  if (creditError) {
-    return jsonResponse({ error: creditError.message }, 500);
-  }
-  if (!allowed) {
-    return jsonResponse({ error: "Credits needed" }, 402);
-  }
-
-  const { data: profiles, error: profileError } = await adminClient
-    .from("profiles")
-    .select(
-      "id, gender, display_name, date_of_birth, time_of_birth, birth_latitude, birth_longitude, birth_timezone",
-    )
-    .in("id", [user.id, targetProfileId])
-    .returns<ProfileBirthDetails[]>();
-
-  if (profileError) {
-    return jsonResponse({ error: profileError.message }, 500);
-  }
-
-  const viewer = profiles?.find((profile) => profile.id === user.id);
-  const target = profiles?.find(
-    (profile) => profile.id === targetProfileId,
-  );
-
+  const viewer = profilesResult.data?.find((profile) => profile.id === userId);
+  const target = profilesResult.data?.find((profile) => profile.id === targetProfileId);
   if (!viewer || !target) {
-    return jsonResponse(
-      { error: "Could not find both profiles for matchmaking." },
-      404,
-    );
+    throw new HttpError(404, "Could not find both profiles for matchmaking.");
   }
 
+  // Validate birth details before charging, so an incomplete profile never costs a credit.
   let astrologyBody: Record<string, number>;
-
   try {
     astrologyBody = buildMatchBody(viewer, target);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Missing required birth details.";
-    return jsonResponse({ error: message }, 400);
+    throw new HttpError(400, error instanceof Error ? error.message : "Missing required birth details.");
   }
+
+  const creditReason = `Generated compatibility with ${targetProfileId}`;
+  const { data: allowed, error: creditError } = await userClient.rpc("spend_credit", {
+    p_reason: creditReason,
+  });
+  if (creditError) throw creditError;
+  if (!allowed) throw new HttpError(402, "Credits needed");
 
   const endpoint =
     Deno.env.get("ASTROLOGY_MATCH_API_ENDPOINT") ??
@@ -424,11 +332,11 @@ serve(async (request) => {
     Accept: "application/json",
     "x-astrologyapi-key": astrologyApiKey,
   };
-
   if (astrologyUserId) {
     headers.Authorization = `Basic ${btoa(`${astrologyUserId}:${astrologyApiKey}`)}`;
   }
 
+  let rawResponse: Record<string, unknown>;
   try {
     const astrologyResponse = await fetch(endpoint, {
       method: "POST",
@@ -436,8 +344,6 @@ serve(async (request) => {
       body: JSON.stringify(astrologyBody),
     });
     const responseText = await astrologyResponse.text();
-    let rawResponse: Record<string, unknown>;
-
     try {
       rawResponse = JSON.parse(responseText);
     } catch {
@@ -445,46 +351,66 @@ serve(async (request) => {
     }
 
     if (!astrologyResponse.ok) {
-      return jsonResponse(
-        {
-          error: "Astrology match-making request failed",
-          status: astrologyResponse.status,
-          details: rawResponse,
-        },
-        502,
-      );
+      throw new HttpError(502, "Astrology match-making request failed", {
+        status: astrologyResponse.status,
+        details: rawResponse,
+      });
     }
-
-    const compatibility = parseMatchReport(rawResponse, target.id);
-    const { data: matchScore, error: scoreUpsertError } = await adminClient
-      .from("match_scores")
-      .upsert(
-        {
-          user_a_id: pair.userAId,
-          user_b_id: pair.userBId,
-          generated_by: user.id,
-          compatibility_score: compatibility.overallScore,
-          compatibility_report: compatibility,
-          raw_report: rawResponse,
-          generated_at: compatibility.generatedAt,
-        },
-        { onConflict: "user_a_id,user_b_id" },
-      )
-      .select("id")
-      .single<{ id: string }>();
-
-    if (scoreUpsertError) {
-      return jsonResponse({ error: scoreUpsertError.message }, 500);
-    }
-
-    if (!matchScore) {
-      return jsonResponse({ error: "Match score was not saved." }, 500);
-    }
-
-    return jsonResponse({ matchScoreId: matchScore.id, compatibility });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Match-making request failed.";
-    return jsonResponse({ error: message }, 500);
+    await refundCredit(adminClient, userId, creditReason);
+    throw error instanceof HttpError ? error : new HttpError(502, "Astrology match-making request failed");
   }
+
+  const compatibility = parseMatchReport(rawResponse, target.id);
+  const { data: matchScore, error: scoreUpsertError } = await adminClient
+    .from("match_scores")
+    .upsert(
+      {
+        user_a_id: pair.userAId,
+        user_b_id: pair.userBId,
+        generated_by: userId,
+        compatibility_score: compatibility.overallScore,
+        compatibility_report: compatibility,
+        raw_report: rawResponse,
+        generated_at: compatibility.generatedAt,
+      },
+      { onConflict: "user_a_id,user_b_id" },
+    )
+    .select("id")
+    .single<{ id: string }>();
+
+  if (scoreUpsertError) throw scoreUpsertError;
+
+  return jsonResponse({ matchScoreId: matchScore.id, compatibility });
 });
+
+/**
+ * Gives back the credit spend_credit took when the paid astrology call fails. spend_credit
+ * does not write a debit for active subscribers, so only refund when a debit exists.
+ */
+async function refundCredit(
+  adminClient: Awaited<ReturnType<typeof getRequestContext>>["adminClient"],
+  userId: string,
+  reason: string,
+) {
+  const { data: debit } = await adminClient
+    .from("credit_transactions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("reason", reason)
+    .eq("amount", -1)
+    .gte("created_at", new Date(Date.now() - 5 * 60 * 1000).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+
+  if (!debit) return;
+
+  const { error } = await adminClient.from("credit_transactions").insert({
+    user_id: userId,
+    amount: 1,
+    reason: `Refund: ${reason}`,
+    metadata: { refundOf: debit.id },
+  });
+  if (error) console.error("Failed to refund match score credit.", error);
+}

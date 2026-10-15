@@ -8,6 +8,7 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { FullScreenLoader } from '@/components/ui/loader';
 import { colors, fontFamily, radius } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { useRealtimeSync } from '@/hooks/use-realtime-sync';
 import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -24,6 +25,7 @@ function TabIcon({ name, focused, color }: { name: IconName; focused: boolean; c
 export default function MainTabsLayout() {
   const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile } = useAppData();
   const hasCheckedNotificationPromptRef = useRef(false);
+  useRealtimeSync();
 
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !hasCompletedOnboarding || hasCheckedNotificationPromptRef.current) {

@@ -1,5 +1,7 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1';
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.106.2';
+
+import { HttpError, jsonResponse, requiredEnv, servePost } from '../_shared/http.ts';
+import { getRequestContext } from '../_shared/supabase.ts';
 
 type ProfileBirthDetails = {
   id: string;
@@ -16,27 +18,6 @@ type ChartImage = {
   path: string;
   response: Record<string, unknown>;
 };
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return Response.json(body, {
-    status,
-    headers: corsHeaders,
-  });
-}
-
-function requiredEnv(name: string) {
-  const value = Deno.env.get(name);
-  if (!value) {
-    throw new Error(`Missing ${name} secret.`);
-  }
-  return value;
-}
 
 function splitDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);
@@ -216,87 +197,72 @@ async function imageFromChartResponse(rawResponse: Record<string, unknown>, auth
   return extractInlineImage(inlineImage);
 }
 
-async function generateChartImages(
-  adminClient: ReturnType<typeof createClient>,
+/** One chart: request the image, normalise the response and store it at a stable path. */
+async function generateChartImage(
+  adminClient: SupabaseClient,
   userId: string,
+  chartId: string,
   astrologyBody: Record<string, number | string>,
   authHeader: string
-) {
+): Promise<ChartImage> {
   const chartEndpointBase =
     Deno.env.get('ASTROLOGY_CHART_IMAGE_ENDPOINT_BASE') ?? 'https://json.astrologyapi.com/v1/horo_chart_image';
-  const chartIds = getChartIds();
-  const chartImages: ChartImage[] = [];
+  const chartResponse = await fetch(`${chartEndpointBase}/${chartId}`, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      ...astrologyBody,
+      chartType: Deno.env.get('ASTROLOGY_CHART_TYPE') ?? 'north',
+      image_type: 'png',
+    }),
+  });
 
-  for (const chartId of chartIds) {
-    const chartResponse = await fetch(`${chartEndpointBase}/${chartId}`, {
-      method: 'POST',
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        ...astrologyBody,
-        chartType: Deno.env.get('ASTROLOGY_CHART_TYPE') ?? 'north',
-        image_type: 'png',
-      }),
-    });
+  const contentType = chartResponse.headers.get('content-type') ?? '';
+  let rawResponse: Record<string, unknown>;
+  let image: { bytes: Uint8Array; contentType: string; extension: string };
 
-    const contentType = chartResponse.headers.get('content-type') ?? '';
-    let rawResponse: Record<string, unknown>;
-
-    if (contentType.includes('image/')) {
-      rawResponse = { contentType };
-      const extension = contentType.includes('svg') ? 'svg' : 'png';
-      const storagePath = `${userId}/${chartId.toLowerCase()}-${Date.now()}.${extension}`;
-      const { error } = await adminClient.storage.from('kundli-charts').upload(
-        storagePath,
-        new Uint8Array(await chartResponse.arrayBuffer()),
-        {
-          contentType,
-          upsert: true,
-        }
-      );
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      chartImages.push({ chartId, path: storagePath, response: rawResponse });
-      continue;
+  if (contentType.includes('image/')) {
+    if (!chartResponse.ok) {
+      throw new Error(`Astrology chart ${chartId} request failed with status ${chartResponse.status}.`);
     }
-
+    rawResponse = { contentType };
+    image = {
+      bytes: new Uint8Array(await chartResponse.arrayBuffer()),
+      contentType,
+      extension: contentType.includes('svg') ? 'svg' : 'png',
+    };
+  } else {
     const responseText = await chartResponse.text();
-
     try {
       rawResponse = JSON.parse(responseText);
     } catch {
       rawResponse = { responseText };
     }
-
     if (!chartResponse.ok) {
       throw new Error(`Astrology chart ${chartId} request failed with status ${chartResponse.status}.`);
     }
-
-    const image = await imageFromChartResponse(rawResponse, authHeader);
-    const storagePath = `${userId}/${chartId.toLowerCase()}-${Date.now()}.${image.extension}`;
-    const { error } = await adminClient.storage.from('kundli-charts').upload(storagePath, image.bytes, {
-      contentType: image.contentType,
-      upsert: true,
-    });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    chartImages.push({ chartId, path: storagePath, response: rawResponse });
+    image = await imageFromChartResponse(rawResponse, authHeader);
   }
 
-  return chartImages;
+  // A stable path per chart means regenerating overwrites instead of leaving orphaned files.
+  const storagePath = `${userId}/${chartId.toLowerCase()}.${image.extension}`;
+  const { error } = await adminClient.storage.from('kundli-charts').upload(storagePath, image.bytes, {
+    contentType: image.contentType,
+    upsert: true,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { chartId, path: storagePath, response: rawResponse };
 }
 
 async function updateKundliStatus(
-  adminClient: ReturnType<typeof createClient>,
+  adminClient: SupabaseClient,
   userId: string,
   status: 'pending' | 'generated' | 'failed'
 ) {
@@ -309,66 +275,49 @@ async function updateKundliStatus(
     .eq('id', userId);
 }
 
-serve(async (request) => {
-  if (request.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-
-  if (request.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
-  }
-
-  let supabaseUrl: string;
-  let supabaseAnonKey: string;
-  let supabaseServiceRoleKey: string;
-  let astrologyUserId: string;
-  let astrologyApiKey: string;
-
-  try {
-    supabaseUrl = requiredEnv('SUPABASE_URL');
-    supabaseAnonKey = requiredEnv('SUPABASE_ANON_KEY');
-    supabaseServiceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
-    astrologyUserId = requiredEnv('ASTROLOGY_API_USER_ID');
-    astrologyApiKey = requiredEnv('ASTROLOGY_API_KEY');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Missing Edge Function secret.';
-    return jsonResponse({ error: message }, 500);
-  }
-
-  const astrologyEndpoint =
-    Deno.env.get('ASTROLOGY_API_ENDPOINT') ?? 'https://json.astrologyapi.com/v1/astro_details';
-  const astrologyAuthHeader = `Basic ${btoa(`${astrologyUserId}:${astrologyApiKey}`)}`;
-
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader) {
-    return jsonResponse({ error: 'Missing Authorization header' }, 401);
-  }
-
-  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
+async function fetchAstroDetails(astrologyBody: Record<string, number>, authHeader: string) {
+  const endpoint = Deno.env.get('ASTROLOGY_API_ENDPOINT') ?? 'https://json.astrologyapi.com/v1/astro_details';
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(astrologyBody),
   });
-  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await authClient.auth.getUser();
-
-  if (userError || !user) {
-    return jsonResponse({ error: 'Unauthorized' }, 401);
+  const responseText = await response.text();
+  let rawResponse: Record<string, unknown>;
+  try {
+    rawResponse = JSON.parse(responseText);
+  } catch {
+    rawResponse = { responseText };
   }
 
-  await updateKundliStatus(adminClient, user.id, 'pending');
+  if (!response.ok) {
+    throw new HttpError(502, 'Astrology API request failed', { status: response.status, details: rawResponse });
+  }
 
-  const { data: profile, error: profileError } = await adminClient
-    .from('profiles')
-    .select('id, date_of_birth, time_of_birth, birth_place, birth_latitude, birth_longitude, birth_timezone')
-    .eq('id', user.id)
-    .single<ProfileBirthDetails>();
+  return rawResponse;
+}
 
-  if (profileError || !profile) {
-    await updateKundliStatus(adminClient, user.id, 'failed');
-    return jsonResponse({ error: 'Birth details profile not found' }, 404);
+const profileColumns = 'id, date_of_birth, time_of_birth, birth_place, birth_latitude, birth_longitude, birth_timezone';
+
+servePost(async (request) => {
+  const astrologyAuthHeader = `Basic ${btoa(
+    `${requiredEnv('ASTROLOGY_API_USER_ID')}:${requiredEnv('ASTROLOGY_API_KEY')}`
+  )}`;
+  const { userId, adminClient } = await getRequestContext(request);
+
+  const [, profileResult] = await Promise.all([
+    updateKundliStatus(adminClient, userId, 'pending'),
+    adminClient.from('profiles').select(profileColumns).eq('id', userId).single<ProfileBirthDetails>(),
+  ]);
+  const profile = profileResult.data;
+
+  if (profileResult.error || !profile) {
+    await updateKundliStatus(adminClient, userId, 'failed');
+    throw new HttpError(404, 'Birth details profile not found');
   }
 
   if (
@@ -379,8 +328,8 @@ serve(async (request) => {
     profile.birth_longitude === null ||
     !profile.birth_timezone
   ) {
-    await updateKundliStatus(adminClient, user.id, 'failed');
-    return jsonResponse({ error: 'Missing required birth details' }, 400);
+    await updateKundliStatus(adminClient, userId, 'failed');
+    throw new HttpError(400, 'Missing required birth details');
   }
 
   const { day, month, year } = splitDate(profile.date_of_birth);
@@ -397,45 +346,20 @@ serve(async (request) => {
   };
 
   try {
-    const astrologyResponse = await fetch(astrologyEndpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: astrologyAuthHeader,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(astrologyBody),
-    });
-
-    const responseText = await astrologyResponse.text();
-    let rawResponse: Record<string, unknown>;
-
-    try {
-      rawResponse = JSON.parse(responseText);
-    } catch {
-      rawResponse = { responseText };
-    }
-
-    if (!astrologyResponse.ok) {
-      await updateKundliStatus(adminClient, user.id, 'failed');
-      return jsonResponse(
-        {
-          error: 'Astrology API request failed',
-          status: astrologyResponse.status,
-          details: rawResponse,
-        },
-        502
-      );
-    }
+    // Details and every chart image are independent calls; run them together.
+    const [rawResponse, ...chartImages] = await Promise.all([
+      fetchAstroDetails(astrologyBody, astrologyAuthHeader),
+      ...getChartIds().map((chartId) =>
+        generateChartImage(adminClient, userId, chartId, astrologyBody, astrologyAuthHeader)
+      ),
+    ]);
 
     const parsedSummary = pickSummary(rawResponse);
-    const chartImages = await generateChartImages(adminClient, user.id, astrologyBody, astrologyAuthHeader);
     const chartImagePaths = Object.fromEntries(chartImages.map((chart) => [chart.chartId, chart.path]));
     const chartRawResponses = Object.fromEntries(chartImages.map((chart) => [chart.chartId, chart.response]));
-
     const { error: upsertError } = await adminClient.from('kundlis').upsert(
       {
-        user_id: user.id,
+        user_id: userId,
         raw_response: rawResponse,
         parsed_summary: parsedSummary,
         chart_image_paths: chartImagePaths,
@@ -446,20 +370,17 @@ serve(async (request) => {
     );
 
     if (upsertError) {
-      await updateKundliStatus(adminClient, user.id, 'failed');
-      return jsonResponse({ error: upsertError.message }, 500);
+      throw new Error(upsertError.message);
     }
 
-    await updateKundliStatus(adminClient, user.id, 'generated');
-
+    await updateKundliStatus(adminClient, userId, 'generated');
     return jsonResponse({
       status: 'generated',
       parsed_summary: parsedSummary,
       chart_image_paths: chartImagePaths,
     });
   } catch (error) {
-    await updateKundliStatus(adminClient, user.id, 'failed');
-    const message = error instanceof Error ? error.message : 'Kundli generation failed';
-    return jsonResponse({ error: message }, 500);
+    await updateKundliStatus(adminClient, userId, 'failed');
+    throw error;
   }
 });

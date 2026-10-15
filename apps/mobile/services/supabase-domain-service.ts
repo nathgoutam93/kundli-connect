@@ -100,11 +100,17 @@ export async function getActivity(): Promise<ActivityItem[]> {
   }));
 }
 
+const CREDIT_HISTORY_LIMIT = 50;
+
 export async function getCreditAccount() {
   const supabase = getSupabaseClient();
   const [{ data: balance, error: balanceError }, { data, error }] = await Promise.all([
     supabase.rpc('get_credit_balance'),
-    supabase.from('credit_transactions').select('id, amount, reason, created_at').order('created_at', { ascending: false }),
+    supabase
+      .from('credit_transactions')
+      .select('id, amount, reason, created_at')
+      .order('created_at', { ascending: false })
+      .limit(CREDIT_HISTORY_LIMIT),
   ]);
   if (balanceError) throw balanceError;
   if (error) throw error;

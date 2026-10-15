@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
@@ -190,11 +190,13 @@ export default function ChatThreadScreen() {
         [chat, discoverProfiles, likes]
     );
 
+    // Mark read on open and whenever a new incoming message arrives while the thread is open.
+    const latestIncomingMessageId = [...thread.messages].reverse().find((message) => message.senderId !== 'me')?.id;
     useEffect(() => {
         if (chatId) {
             void markChatReadRef.current(chatId);
         }
-    }, [chatId]);
+    }, [chatId, latestIncomingMessageId]);
 
     async function handleSend() {
         const text = draft.trim();
@@ -203,7 +205,13 @@ export default function ChatThreadScreen() {
         }
 
         setDraft('');
-        await sendChatMessage(chatId, text);
+        try {
+            await sendChatMessage(chatId, text);
+        } catch (error) {
+            // The optimistic bubble is rolled back; give the text back so nothing is lost.
+            setDraft((current) => current || text);
+            Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
+        }
     }
 
     return (
