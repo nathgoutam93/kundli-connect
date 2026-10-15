@@ -1,5 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { useState, type ComponentProps } from 'react';
 import { Alert, ImageBackground, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,20 +8,39 @@ import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
 import { artworkScrimGradient, colors, fontFamily, gutter, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { enabledSocialProviders, type SocialProvider } from '@/services/auth';
+
+const PROVIDER_BUTTONS: Record<
+  SocialProvider,
+  { label: string; icon: ComponentProps<typeof Button>['icon']; variant: ComponentProps<typeof Button>['variant'] }
+> = {
+  google: { label: 'Continue with Google', icon: 'logo-google', variant: 'light' },
+  facebook: { label: 'Continue with Facebook', icon: 'logo-facebook', variant: 'secondary' },
+  apple: { label: 'Continue with Apple', icon: 'logo-apple', variant: 'light' },
+};
 
 export default function WelcomeScreen() {
-  const completeGoogleLogin = useAppData((state) => state.completeGoogleLogin);
+  const signInWithProvider = useAppData((state) => state.signInWithProvider);
+  const [busyProvider, setBusyProvider] = useState<SocialProvider | null>(null);
 
   function handleCreateAccount() {
     router.push('/(auth)/phone');
   }
 
-  async function handleGoogleLogin() {
+  async function handleSocialSignIn(provider: SocialProvider) {
+    setBusyProvider(provider);
     try {
-      await completeGoogleLogin();
-      router.replace('/(onboarding)/basics');
+      const result = await signInWithProvider(provider);
+      if (result.status === 'success') {
+        // The index route sends new users to onboarding and returning users to the app.
+        router.replace('/');
+      } else if (result.status === 'failed') {
+        Alert.alert('Sign-in failed', result.reason);
+      }
     } catch (error) {
-      Alert.alert('Google sign-in unavailable', error instanceof Error ? error.message : 'Try phone sign-in instead.');
+      Alert.alert('Sign-in failed', error instanceof Error ? error.message : 'Try phone sign-in instead.');
+    } finally {
+      setBusyProvider(null);
     }
   }
 
@@ -56,8 +76,18 @@ export default function WelcomeScreen() {
           </View>
 
           <View style={styles.actions}>
-            <Button label="Create account" onPress={handleCreateAccount} />
-            <Button label="Continue with Google" variant="light" icon="logo-google" onPress={handleGoogleLogin} />
+            <Button label="Continue with phone" icon="call" onPress={handleCreateAccount} disabled={busyProvider !== null} />
+            {enabledSocialProviders.map((provider) => (
+              <Button
+                key={provider}
+                label={PROVIDER_BUTTONS[provider].label}
+                icon={PROVIDER_BUTTONS[provider].icon}
+                variant={PROVIDER_BUTTONS[provider].variant}
+                loading={busyProvider === provider}
+                disabled={busyProvider !== null && busyProvider !== provider}
+                onPress={() => handleSocialSignIn(provider)}
+              />
+            ))}
 
             <Pressable style={styles.authLink} onPress={handleCreateAccount} hitSlop={8}>
               <AppText variant="footnote" color={colors.textMuted}>
