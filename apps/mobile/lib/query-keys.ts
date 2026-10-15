@@ -11,5 +11,6 @@ export const queryKeys = {
   creditAccount: (userId: string) => [...queryKeys.user(userId), 'credit-account'] as const,
   subscription: (userId: string) => [...queryKeys.user(userId), 'subscription'] as const,
   subscriptionPlans: ['subscription-plans'] as const,
+  creditPacks: ['credit-packs'] as const,
   settings: (userId: string) => [...queryKeys.user(userId), 'settings'] as const,
 };

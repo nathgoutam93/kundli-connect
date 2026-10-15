@@ -20,7 +20,8 @@
     "mobile:lint": "npm --prefix apps/mobile run lint",
     "supabase:link": "set -a; . ./.env; set +a; supabase link --project-ref \"$SUPABASE_PROJECT_REF\"",
     "supabase:db:push": "supabase db push",
-    "supabase:functions:deploy": "supabase functions deploy generate-kundli && supabase functions deploy generate-match-score && supabase functions deploy create-like && supabase functions deploy reply-to-like && supabase functions deploy send-push-notification --no-verify-jwt && supabase functions deploy send-chat-message"
+    "supabase:functions:deploy": "supabase functions deploy generate-kundli && supabase functions deploy generate-match-score && supabase functions deploy create-like && supabase functions deploy reply-to-like && supabase functions deploy send-push-notification --no-verify-jwt && supabase functions deploy send-chat-message && supabase functions deploy create-checkout && supabase functions deploy confirm-checkout && supabase functions deploy payment-webhook --no-verify-jwt",
+    "supabase:functions:test": "DENO_NO_PACKAGE_JSON=1 deno test --allow-env --node-modules-dir=none supabase/functions/tests"
   },
   "devDependencies": {
     "eslint": "^9.39.4",
