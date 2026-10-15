@@ -31,6 +31,9 @@ export type KundliSummary = {
   chartImages?: KundliChartImage[];
 };
 
+/** Signed chart URLs live this long; the Kundli query refetches before they expire. */
+export const KUNDLI_CHART_URL_TTL_SECONDS = 60 * 60;
+
 export type KundliChartImage = {
   chartId: string;
   path: string;
@@ -86,6 +89,32 @@ type ProfilePhotoRow = {
   sort_order: number;
 };
 
+/** Row shape of the public.profile_cards view (also embedded as JSON by the RPCs). */
+type ProfileCardRow = Omit<ProfileRow, 'phone' | 'email' | 'time_of_birth' | 'birth_latitude' | 'birth_longitude' | 'birth_timezone' | 'kundli_generation_status' | 'photo_urls' | 'updated_at'> & {
+  photo_paths: string[] | null;
+};
+
+type IncomingLikeRow = {
+  id: string;
+  from_user_id: string;
+  opening_message: string | null;
+  created_at: string;
+  compatibility_report: CompatibilityResult | null;
+  profile: ProfileCardRow | null;
+};
+
+type ChatPreviewRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  hidden: boolean;
+  participant_id: string;
+  compatibility_report: CompatibilityResult | null;
+  last_message: Omit<MessageRow, 'chat_id'> | null;
+  unread_count: number;
+  participant: ProfileCardRow | null;
+};
+
 type KundliRow = {
   parsed_summary: KundliSummary;
   raw_response: Record<string, unknown>;
@@ -93,37 +122,21 @@ type KundliRow = {
   generated_at: string;
 };
 
+// Reads the locally persisted session. Unlike auth.getUser() this makes no network request;
+// the server still enforces identity through RLS on every query.
 async function getSessionUser() {
   const { data, error } = await getSupabaseClient().auth.getSession();
   if (error) throw error;
   return data.session?.user ?? null;
 }
 
-type PendingLikeRow = {
-  id: string;
-  from_user_id: string;
-  opening_message: string | null;
-  match_score_id: string | null;
-  created_at: string;
-};
-
-type MatchScoreSummaryRow = {
-  id: string;
-  compatibility_report: CompatibilityResult | null;
-};
-
-type ChatRow = {
-  id: string;
-  like_id: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type ChatParticipantRow = {
-  chat_id: string;
-  last_read_at: string | null;
-  hidden: boolean;
-};
+async function requireSessionUser() {
+  const user = await getSessionUser();
+  if (!user) {
+    throw new Error('No authenticated Supabase user found.');
+  }
+  return user;
+}
 
 type MessageRow = {
   id: string;
@@ -134,15 +147,6 @@ type MessageRow = {
   read_at: string | null;
   created_at: string;
 };
-
-type ChatLikeRow = {
-  id: string;
-  from_user_id: string;
-  to_user_id: string;
-  match_score_id: string | null;
-};
-
-type MatchedLikeParticipantRow = Pick<ChatLikeRow, 'from_user_id' | 'to_user_id'>;
 
 type SentChatMessageResult = {
   id: string;
@@ -287,7 +291,18 @@ function addDetail(details: ProfileDetail[], label: string, icon: ProfileDetail[
   details.push({ label, icon, text });
 }
 
-function profileRowToDiscoverProfile(row: ProfileRow, photos: string[]): DiscoverProfile | null {
+function profilePhotoUrl(storagePath: string) {
+  return getSupabaseClient().storage.from('profile-photos').getPublicUrl(storagePath).data.publicUrl;
+}
+
+function profileCardToDiscoverProfile(card: ProfileCardRow) {
+  return profileRowToDiscoverProfile(card, (card.photo_paths ?? []).map(profilePhotoUrl));
+}
+
+function profileRowToDiscoverProfile(
+  row: Omit<ProfileCardRow, 'photo_paths'>,
+  photos: string[]
+): DiscoverProfile | null {
   const name = row.display_name?.trim() || 'KundaliKonnect Member';
 
   if (!row.id) {
@@ -340,10 +355,7 @@ function profileRowToDiscoverProfile(row: ProfileRow, photos: string[]): Discove
     location: row.location || row.birth_place || 'India',
     bio,
     prompt: bio,
-    photos:
-      photos.length > 0
-        ? photos
-        : ['https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=85'],
+    photos,
     details,
     compatibility: createCompatibility(row.id),
   };
@@ -460,275 +472,66 @@ export async function getCurrentUserProfile() {
         'onboarding_completed',
         'created_at',
         'updated_at',
+        'profile_photos(storage_path, sort_order)',
       ].join(', ')
     )
     .eq('id', user.id)
-    .single<ProfileRow>();
+    .order('sort_order', { referencedTable: 'profile_photos', ascending: true })
+    .single<Omit<ProfileRow, 'photo_urls'> & { profile_photos: Omit<ProfilePhotoRow, 'user_id'>[] | null }>();
 
   if (error) {
     throw error;
   }
 
-  const { data: photoRows, error: photoError } = await supabase
-    .from('profile_photos')
-    .select('storage_path')
-    .eq('user_id', user.id)
-    .order('sort_order', { ascending: true })
-    .returns<ProfilePhotoRow[]>();
-
-  if (photoError) {
-    throw photoError;
-  }
-
-  const photoUrls = (photoRows ?? []).map((photo) => {
-    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
-    return publicUrlData.publicUrl;
-  });
+  const { profile_photos: photoRows, ...row } = data;
 
   return {
-    ...data,
-    photo_urls: photoUrls,
+    ...row,
+    photo_urls: (photoRows ?? []).map((photo) => profilePhotoUrl(photo.storage_path)),
   };
 }
 
 export async function getDiscoverProfiles() {
-  const supabase = getSupabaseClient();
-  const user = await getSessionUser();
-
-  if (!user) {
-    return [];
-  }
-
-  const [{ data: likeRows, error: likeError }, { data: passRows, error: passError }] = await Promise.all([
-    supabase
-    .from('likes')
-    .select('from_user_id, to_user_id')
-    .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`)
-    .returns<MatchedLikeParticipantRow[]>(),
-    supabase.from('discovery_passes').select('passed_user_id').eq('user_id', user.id),
-  ]);
-
-  if (likeError) throw likeError;
-  if (passError) throw passError;
-
-  const excludedProfileIds = [
-    ...new Set(
-      [
-        ...(likeRows ?? []).map((like) => (like.from_user_id === user.id ? like.to_user_id : like.from_user_id)),
-        ...(passRows ?? []).map((pass) => pass.passed_user_id as string),
-      ]
-    ),
-  ];
-
-  let profileQuery = supabase
-    .from('profiles')
-    .select(
-      [
-        'id',
-        'display_name',
-        'gender',
-        'gender_preferences',
-        'height',
-        'date_of_birth',
-        'birth_place',
-        'location',
-        'bio',
-        'family_plans',
-        'family_plans_visible_on_profile',
-        'workplace',
-        'workplace_visible_on_profile',
-        'job_role',
-        'job_role_visible_on_profile',
-        'school',
-        'school_visible_on_profile',
-        'education_level',
-        'education_level_visible_on_profile',
-        'religious_beliefs',
-        'drinking',
-        'drinking_visible_on_profile',
-        'smoking',
-        'smoking_visible_on_profile',
-        'onboarding_completed',
-        'created_at',
-        'updated_at',
-      ].join(', ')
-    )
-    .eq('onboarding_completed', true)
-    .neq('id', user.id);
-
-  if (excludedProfileIds.length > 0) {
-    profileQuery = profileQuery.not('id', 'in', `(${excludedProfileIds.join(',')})`);
-  }
-
-  const { data: profileRows, error } = await profileQuery
-    .order('created_at', { ascending: false })
-    .limit(50)
-    .returns<ProfileRow[]>();
+  const { data, error } = await getSupabaseClient().rpc('get_discover_profiles', { p_limit: 50 });
 
   if (error) {
     throw error;
   }
 
-  const profileIds = (profileRows ?? []).map((profile) => profile.id);
-  if (profileIds.length === 0) {
-    return [];
-  }
-
-  const { data: photoRows, error: photoError } = await supabase
-    .from('profile_photos')
-    .select('user_id, storage_path, sort_order')
-    .in('user_id', profileIds)
-    .order('sort_order', { ascending: true })
-    .returns<ProfilePhotoRow[]>();
-
-  if (photoError) {
-    throw photoError;
-  }
-
-  const photosByUserId = new Map<string, string[]>();
-  for (const photo of photoRows ?? []) {
-    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
-    const photos = photosByUserId.get(photo.user_id) ?? [];
-    photos.push(publicUrlData.publicUrl);
-    photosByUserId.set(photo.user_id, photos);
-  }
-
-  return (profileRows ?? [])
-    .map((profile) => profileRowToDiscoverProfile(profile, photosByUserId.get(profile.id) ?? []))
+  return ((data ?? []) as ProfileCardRow[])
+    .map(profileCardToDiscoverProfile)
     .filter((profile): profile is DiscoverProfile => Boolean(profile));
 }
 
 export async function getPendingIncomingLikes() {
-  const supabase = getSupabaseClient();
-  const user = await getSessionUser();
+  const { data, error } = await getSupabaseClient().rpc('get_incoming_likes');
 
-  if (!user) {
-    return [];
+  if (error) {
+    throw error;
   }
 
-  const { data: likeRows, error: likeError } = await supabase
-    .from('likes')
-    .select('id, from_user_id, opening_message, match_score_id, created_at')
-    .eq('to_user_id', user.id)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false })
-    .returns<PendingLikeRow[]>();
-
-  if (likeError) {
-    throw likeError;
-  }
-
-  const likes = likeRows ?? [];
-  if (likes.length === 0) {
-    return [];
-  }
-
-  const fromUserIds = [...new Set(likes.map((like) => like.from_user_id))];
-  const { data: profileRows, error: profileError } = await supabase
-    .from('profiles')
-    .select(
-      [
-        'id',
-        'display_name',
-        'gender',
-        'gender_preferences',
-        'height',
-        'date_of_birth',
-        'birth_place',
-        'location',
-        'bio',
-        'family_plans',
-        'family_plans_visible_on_profile',
-        'workplace',
-        'workplace_visible_on_profile',
-        'job_role',
-        'job_role_visible_on_profile',
-        'school',
-        'school_visible_on_profile',
-        'education_level',
-        'education_level_visible_on_profile',
-        'religious_beliefs',
-        'drinking',
-        'drinking_visible_on_profile',
-        'smoking',
-        'smoking_visible_on_profile',
-        'created_at',
-      ].join(', ')
-    )
-    .in('id', fromUserIds)
-    .returns<ProfileRow[]>();
-
-  if (profileError) {
-    throw profileError;
-  }
-
-  const { data: photoRows, error: photoError } = await supabase
-    .from('profile_photos')
-    .select('user_id, storage_path, sort_order')
-    .in('user_id', fromUserIds)
-    .order('sort_order', { ascending: true })
-    .returns<ProfilePhotoRow[]>();
-
-  if (photoError) {
-    throw photoError;
-  }
-
-  const matchScoreIds = [
-    ...new Set(likes.map((like) => like.match_score_id).filter((id): id is string => Boolean(id))),
-  ];
-  const { data: matchScoreRows, error: matchScoreError } =
-    matchScoreIds.length > 0
-      ? await supabase
-          .from('match_scores')
-          .select('id, compatibility_report')
-          .in('id', matchScoreIds)
-          .returns<MatchScoreSummaryRow[]>()
-      : { data: [] as MatchScoreSummaryRow[], error: null };
-
-  if (matchScoreError) {
-    throw matchScoreError;
-  }
-
-  const profilesById = new Map((profileRows ?? []).map((profile) => [profile.id, profile]));
-  const scoresById = new Map((matchScoreRows ?? []).map((score) => [score.id, score.compatibility_report]));
-  const photosByUserId = new Map<string, string[]>();
-
-  for (const photo of photoRows ?? []) {
-    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
-    const photos = photosByUserId.get(photo.user_id) ?? [];
-    photos.push(publicUrlData.publicUrl);
-    photosByUserId.set(photo.user_id, photos);
-  }
-
-  return likes
+  return ((data ?? []) as IncomingLikeRow[])
     .map((like): LikeItem | null => {
-      const fromProfile = profilesById.get(like.from_user_id);
-      if (!fromProfile) {
+      const fromProfile = like.profile ? profileCardToDiscoverProfile(like.profile) : null;
+      if (!like.profile || !fromProfile) {
         return null;
       }
 
-      const photoUrls = photosByUserId.get(like.from_user_id) ?? [];
-      const avatarUrl =
-        photoUrls[0] ??
-        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85';
-      const compatibility = like.match_score_id ? scoresById.get(like.match_score_id) : null;
-      const fromDiscoverProfile = profileRowToDiscoverProfile(fromProfile, photoUrls);
+      const compatibility = like.compatibility_report ?? createCompatibility(like.from_user_id);
 
       return {
         id: like.id,
         createdAt: like.created_at,
         fromProfileId: like.from_user_id,
-        ...(fromDiscoverProfile
-          ? { fromProfile: { ...fromDiscoverProfile, compatibility: compatibility ?? fromDiscoverProfile.compatibility } }
-          : {}),
-        fromName: fromProfile.display_name?.trim() || 'KundaliKonnect Member',
-        age: calculateAge(fromProfile.date_of_birth),
-        location: fromProfile.location || fromProfile.birth_place || 'India',
-        avatarUrl,
+        fromProfile: { ...fromProfile, compatibility },
+        fromName: fromProfile.name,
+        age: fromProfile.age,
+        location: fromProfile.location,
+        avatarUrl: fromProfile.photos[0] ?? '',
         openingMessage: like.opening_message?.trim() || 'Sent you a like.',
-        note: fromProfile.bio?.trim() || 'Interested in connecting.',
+        note: like.profile.bio?.trim() || 'Interested in connecting.',
         timeAgo: timeAgo(like.created_at),
-        compatibility: compatibility ?? createCompatibility(like.from_user_id),
+        compatibility,
       };
     })
     .filter((like): like is LikeItem => Boolean(like));
@@ -793,198 +596,43 @@ export async function getChatMessages(
   return getChatMessagesPage(chatId, user.id, options);
 }
 
-export async function getChats(messageLimit = 15) {
-  const supabase = getSupabaseClient();
+export async function getChats() {
   const user = await getSessionUser();
 
   if (!user) {
     return [];
   }
 
-  const { data: participantRows, error: participantError } = await supabase
-    .from('chat_participants')
-    .select('chat_id, last_read_at, hidden')
-    .eq('user_id', user.id)
-    .returns<ChatParticipantRow[]>();
+  const { data, error } = await getSupabaseClient().rpc('get_chat_previews');
 
-  if (participantError) {
-    throw participantError;
+  if (error) {
+    throw error;
   }
 
-  const chatIds = (participantRows ?? []).map((participant) => participant.chat_id);
-  if (chatIds.length === 0) {
-    return [];
-  }
+  return ((data ?? []) as ChatPreviewRow[]).map((chat): ChatPreview => {
+    const participantProfile = chat.participant ? profileCardToDiscoverProfile(chat.participant) : null;
+    const lastMessage = chat.last_message
+      ? mapMessageRow({ ...chat.last_message, chat_id: chat.id }, user.id)
+      : null;
+    const compatibility = chat.compatibility_report;
 
-  const { data: chatRows, error: chatError } = await supabase
-    .from('chats')
-    .select('id, like_id, created_at, updated_at')
-    .in('id', chatIds)
-    .order('updated_at', { ascending: false })
-    .returns<ChatRow[]>();
-
-  if (chatError) {
-    throw chatError;
-  }
-
-  const chats = chatRows ?? [];
-  const participationByChatId = new Map((participantRows ?? []).map((participant) => [participant.chat_id, participant]));
-  const likeIds = [...new Set(chats.map((chat) => chat.like_id).filter((id): id is string => Boolean(id)))];
-
-  const { data: likeRows, error: likeError } =
-    likeIds.length > 0
-      ? await supabase
-          .from('likes')
-          .select('id, from_user_id, to_user_id, match_score_id')
-          .in('id', likeIds)
-          .returns<ChatLikeRow[]>()
-      : { data: [] as ChatLikeRow[], error: null };
-
-  if (likeError) {
-    throw likeError;
-  }
-
-  const likesById = new Map((likeRows ?? []).map((like) => [like.id, like]));
-  const participantIds = [
-    ...new Set(
-      chats
-        .map((chat) => {
-          const like = chat.like_id ? likesById.get(chat.like_id) : undefined;
-          if (!like) {
-            return null;
-          }
-
-          return like.from_user_id === user.id ? like.to_user_id : like.from_user_id;
-        })
-        .filter((id): id is string => Boolean(id))
-    ),
-  ];
-
-  const matchScoreIds = [
-    ...new Set(
-      (likeRows ?? []).map((like) => like.match_score_id).filter((id): id is string => Boolean(id))
-    ),
-  ];
-  const [
-    { data: profileRows, error: profileError },
-    { data: photoRows, error: photoError },
-    { data: matchScoreRows, error: matchScoreError },
-  ] = await Promise.all([
-    participantIds.length > 0
-      ? supabase
-          .from('profiles')
-          .select(
-            [
-              'id',
-              'display_name',
-              'gender',
-              'gender_preferences',
-              'height',
-              'date_of_birth',
-              'birth_place',
-              'location',
-              'bio',
-              'family_plans',
-              'family_plans_visible_on_profile',
-              'workplace',
-              'workplace_visible_on_profile',
-              'job_role',
-              'job_role_visible_on_profile',
-              'school',
-              'school_visible_on_profile',
-              'education_level',
-              'education_level_visible_on_profile',
-              'religious_beliefs',
-              'drinking',
-              'drinking_visible_on_profile',
-              'smoking',
-              'smoking_visible_on_profile',
-              'created_at',
-            ].join(', ')
-          )
-          .in('id', participantIds)
-          .returns<ProfileRow[]>()
-      : Promise.resolve({ data: [] as ProfileRow[], error: null }),
-    participantIds.length > 0
-      ? supabase
-          .from('profile_photos')
-          .select('user_id, storage_path, sort_order')
-          .in('user_id', participantIds)
-          .order('sort_order', { ascending: true })
-          .returns<ProfilePhotoRow[]>()
-      : Promise.resolve({ data: [] as ProfilePhotoRow[], error: null }),
-    matchScoreIds.length > 0
-      ? supabase
-          .from('match_scores')
-          .select('id, compatibility_report')
-          .in('id', matchScoreIds)
-          .returns<MatchScoreSummaryRow[]>()
-      : Promise.resolve({ data: [] as MatchScoreSummaryRow[], error: null }),
-  ]);
-
-  if (profileError) throw profileError;
-  if (photoError) throw photoError;
-  if (matchScoreError) throw matchScoreError;
-
-  const profilesById = new Map((profileRows ?? []).map((profile) => [profile.id, profile]));
-  const scoresById = new Map((matchScoreRows ?? []).map((score) => [score.id, score.compatibility_report]));
-  const photosByUserId = new Map<string, string[]>();
-
-  for (const photo of photoRows ?? []) {
-    const { data: publicUrlData } = supabase.storage.from('profile-photos').getPublicUrl(photo.storage_path);
-    const photos = photosByUserId.get(photo.user_id) ?? [];
-    photos.push(publicUrlData.publicUrl);
-    photosByUserId.set(photo.user_id, photos);
-  }
-
-  const previewRows = await Promise.all(
-    chats.map(async (chat): Promise<ChatPreview | null> => {
-      const like = chat.like_id ? likesById.get(chat.like_id) : undefined;
-      if (!like) {
-        return null;
-      }
-
-      const participantId = like.from_user_id === user.id ? like.to_user_id : like.from_user_id;
-      const profile = profilesById.get(participantId);
-      const photoUrls = photosByUserId.get(participantId) ?? [];
-      const participantProfile = profile ? profileRowToDiscoverProfile(profile, photoUrls) : null;
-      const compatibility = like.match_score_id ? scoresById.get(like.match_score_id) : null;
-      const [messagePage, unreadResult] = await Promise.all([
-        getChatMessagesPage(chat.id, user.id, { limit: messageLimit }),
-        supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('chat_id', chat.id)
-          .neq('sender_id', user.id)
-          .neq('status', 'read'),
-      ]);
-
-      if (unreadResult.error) {
-        throw unreadResult.error;
-      }
-
-      return {
-        id: chat.id,
-        createdAt: chat.created_at,
-        updatedAt: chat.updated_at,
-        participantId,
-        ...(participantProfile ? { participantProfile } : {}),
-        name: profile?.display_name?.trim() || 'KundaliKonnect Member',
-        avatarUrl:
-          photoUrls[0] ??
-          'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=240&q=85',
-        lastMessage: messagePage.messages.at(-1)?.text ?? 'Start the conversation',
-        unreadCount: unreadResult.count ?? 0,
-        hidden: participationByChatId.get(chat.id)?.hidden ?? false,
-        compatibilityScore: compatibility?.overallScore ?? createCompatibility(participantId).overallScore,
-        ...(compatibility ? { compatibility } : {}),
-        hasMoreMessages: messagePage.hasMoreMessages,
-        messages: messagePage.messages,
-      };
-    })
-  );
-
-  return previewRows.filter((chat): chat is ChatPreview => Boolean(chat));
+    return {
+      id: chat.id,
+      createdAt: chat.created_at,
+      updatedAt: chat.updated_at,
+      participantId: chat.participant_id,
+      ...(participantProfile ? { participantProfile } : {}),
+      name: participantProfile?.name ?? 'KundaliKonnect Member',
+      avatarUrl: participantProfile?.photos[0] ?? '',
+      lastMessage: lastMessage?.text ?? 'Start the conversation',
+      unreadCount: chat.unread_count,
+      hidden: chat.hidden,
+      compatibilityScore: compatibility?.overallScore ?? createCompatibility(chat.participant_id).overallScore,
+      ...(compatibility ? { compatibility } : {}),
+      hasMoreMessages: false,
+      messages: lastMessage ? [lastMessage] : [],
+    };
+  });
 }
 
 export async function sendMessage(chatId: string, text: string) {
@@ -1074,18 +722,7 @@ function toNullableNumber(value: string) {
 
 export async function updateCurrentUserProfile(profile: UserProfile, options?: { onboardingCompleted?: boolean }) {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
-
-  if (!user) {
-    throw new Error('No authenticated Supabase user found.');
-  }
+  const user = await requireSessionUser();
 
   const updates = {
     id: user.id,
@@ -1186,7 +823,7 @@ export async function createLike(targetProfileId: string, openingMessage: string
 
 export async function replyToLike(likeId: string, message: string) {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase.functions.invoke<{ chat: ChatPreview }>('reply-to-like', {
+  const { data, error } = await supabase.functions.invoke<{ chatId: string }>('reply-to-like', {
     body: { likeId, message },
   });
 
@@ -1194,11 +831,11 @@ export async function replyToLike(likeId: string, message: string) {
     throw error;
   }
 
-  if (!data?.chat) {
-    throw new Error('Reply did not return a chat record.');
+  if (!data?.chatId) {
+    throw new Error('Reply did not return a chat.');
   }
 
-  return data.chat;
+  return data.chatId;
 }
 
 function getExpoProjectId() {
@@ -1209,18 +846,8 @@ export async function registerCurrentUserPushToken(
   options: { requestPermission?: boolean } = {}
 ): Promise<PushTokenRegistration | null> {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
-
-  if (!user) {
-    throw new Error('No authenticated Supabase user found.');
-  }
+  // upsert_own_push_token reads auth.uid() itself; this just fails fast when signed out.
+  await requireSessionUser();
 
   const existingPermission = await Notifications.getPermissionsAsync();
   let isGranted = existingPermission.granted;
@@ -1240,7 +867,7 @@ export async function registerCurrentUserPushToken(
       name: 'Default',
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FCAD00',
+      lightColor: '#E9B949',
     });
   }
 
@@ -1266,14 +893,7 @@ export async function registerCurrentUserPushToken(
 
 async function deleteCurrentUserPushTokens() {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return;
@@ -1300,14 +920,7 @@ async function deleteCurrentUserPushTokens() {
 
 export async function getCurrentUserKundliSummary() {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
+  const user = await getSessionUser();
 
   if (!user) {
     return null;
@@ -1327,46 +940,31 @@ export async function getCurrentUserKundliSummary() {
     return null;
   }
 
-  const chartImages = await Promise.all(
-    Object.entries(data.chart_image_paths ?? {}).map(async ([chartId, path]) => {
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('kundli-charts')
-        .createSignedUrl(path, 60 * 60);
-
-      if (signedUrlError || !signedUrlData?.signedUrl) {
-        return null;
-      }
-
-      return {
-        chartId,
-        path,
-        signedUrl: signedUrlData.signedUrl,
-      };
-    })
+  const charts = Object.entries(data.chart_image_paths ?? {});
+  const { data: signedUrls } =
+    charts.length > 0
+      ? await supabase.storage.from('kundli-charts').createSignedUrls(
+          charts.map(([, path]) => path),
+          KUNDLI_CHART_URL_TTL_SECONDS
+        )
+      : { data: [] };
+  const signedUrlByPath = new Map(
+    (signedUrls ?? []).filter((item) => item.signedUrl && !item.error).map((item) => [item.path, item.signedUrl])
   );
 
   return {
     ...data.parsed_summary,
     generatedAt: data.parsed_summary.generatedAt || data.generated_at,
     rawResponse: data.raw_response,
-    chartImages: chartImages.filter((image): image is KundliChartImage => Boolean(image)),
+    chartImages: charts
+      .map(([chartId, path]) => ({ chartId, path, signedUrl: signedUrlByPath.get(path) ?? '' }))
+      .filter((image): image is KundliChartImage => Boolean(image.signedUrl)),
   };
 }
 
 export async function uploadCurrentUserProfilePhoto(uri: string, sortOrder: number) {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
-
-  if (!user) {
-    throw new Error('No authenticated Supabase user found.');
-  }
+  const user = await requireSessionUser();
 
   const { extension, contentType } = getPhotoContentType(uri);
   const base64 = await FileSystem.readAsStringAsync(uri, {
@@ -1437,62 +1035,22 @@ function getProfilePhotoStoragePath(publicUrl: string, userId: string) {
 
 export async function updateCurrentUserProfilePhotoOrder(publicUrls: string[]) {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
-
-  if (!user) {
-    throw new Error('No authenticated Supabase user found.');
-  }
+  const user = await requireSessionUser();
 
   const storagePaths = publicUrls
     .map((publicUrl) => getProfilePhotoStoragePath(publicUrl, user.id))
     .filter((storagePath): storagePath is string => Boolean(storagePath));
 
-  for (const [index, storagePath] of storagePaths.entries()) {
-    const { error } = await supabase
-      .from('profile_photos')
-      .update({ sort_order: index + 1000 })
-      .eq('user_id', user.id)
-      .eq('storage_path', storagePath);
+  const { error } = await supabase.rpc('reorder_profile_photos', { p_storage_paths: storagePaths });
 
-    if (error) {
-      throw error;
-    }
-  }
-
-  for (const [index, storagePath] of storagePaths.entries()) {
-    const { error } = await supabase
-      .from('profile_photos')
-      .update({ sort_order: index })
-      .eq('user_id', user.id)
-      .eq('storage_path', storagePath);
-
-    if (error) {
-      throw error;
-    }
+  if (error) {
+    throw error;
   }
 }
 
 export async function deleteCurrentUserProfilePhoto(publicUrl: string) {
   const supabase = getSupabaseClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError) {
-    throw userError;
-  }
-
-  if (!user) {
-    throw new Error('No authenticated Supabase user found.');
-  }
+  const user = await requireSessionUser();
 
   const storagePath = getProfilePhotoStoragePath(publicUrl, user.id);
   if (!storagePath) {

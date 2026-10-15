@@ -1,195 +1,74 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.46.1";
+import { HttpError, jsonResponse, readJson, runInBackground, servePost } from "../_shared/http.ts";
+import { sendPushToUser } from "../_shared/push.ts";
+import { getDisplayName, getRequestContext, orderedPair } from "../_shared/supabase.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const likeColumns = "id, from_user_id, to_user_id, opening_message, match_score_id, status, created_at";
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return Response.json(body, {
-    status,
-    headers: corsHeaders,
-  });
-}
-
-function requiredEnv(name: string) {
-  const value = Deno.env.get(name);
-  if (!value) {
-    throw new Error(`Missing ${name} secret.`);
-  }
-  return value;
-}
-
-function orderedPair(firstUserId: string, secondUserId: string) {
-  return firstUserId < secondUserId
-    ? { userAId: firstUserId, userBId: secondUserId }
-    : { userAId: secondUserId, userBId: firstUserId };
-}
-
-async function sendPushNotification(
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  payload: {
-    recipientUserId: string;
-    title: string;
-    body: string;
-    data?: Record<string, unknown>;
-  },
-) {
-  const response = await fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-}
-
-serve(async (request) => {
-  if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  if (request.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, 405);
-  }
-
-  let supabaseUrl: string;
-  let supabaseAnonKey: string;
-  let supabaseServiceRoleKey: string;
-
-  try {
-    supabaseUrl = requiredEnv("SUPABASE_URL");
-    supabaseAnonKey = requiredEnv("SUPABASE_ANON_KEY");
-    supabaseServiceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Missing Edge Function secret.";
-    return jsonResponse({ error: message }, 500);
-  }
-
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader) {
-    return jsonResponse({ error: "Missing Authorization header" }, 401);
-  }
-
-  let body: { targetProfileId?: string; openingMessage?: string };
-
-  try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ error: "Invalid JSON body" }, 400);
-  }
-
+servePost(async (request) => {
+  const body = await readJson<{ targetProfileId?: string; openingMessage?: string }>(request);
   const targetProfileId = body.targetProfileId?.trim();
   const openingMessage = body.openingMessage?.trim();
 
-  if (!targetProfileId) {
-    return jsonResponse({ error: "Missing targetProfileId" }, 400);
+  if (!targetProfileId) throw new HttpError(400, "Missing targetProfileId");
+  if (!openingMessage) throw new HttpError(400, "Missing openingMessage");
+
+  const { userId, userClient, adminClient } = await getRequestContext(request);
+
+  if (userId === targetProfileId) {
+    throw new HttpError(400, "Cannot like your own profile.");
   }
 
-  if (!openingMessage) {
-    return jsonResponse({ error: "Missing openingMessage" }, 400);
+  const pair = orderedPair(userId, targetProfileId);
+  const [matchScoreResult, existingLikeResult, senderName] = await Promise.all([
+    adminClient
+      .from("match_scores")
+      .select("id")
+      .eq("user_a_id", pair.userAId)
+      .eq("user_b_id", pair.userBId)
+      .maybeSingle<{ id: string }>(),
+    adminClient
+      .from("likes")
+      .select(likeColumns)
+      .eq("from_user_id", userId)
+      .eq("to_user_id", targetProfileId)
+      .maybeSingle(),
+    getDisplayName(adminClient, userId),
+  ]);
+
+  if (matchScoreResult.error) throw matchScoreResult.error;
+  if (existingLikeResult.error) throw existingLikeResult.error;
+
+  if (existingLikeResult.data) {
+    return jsonResponse({ like: existingLikeResult.data, existing: true });
   }
 
-  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
+  if (!matchScoreResult.data) {
+    throw new HttpError(400, "Generate a match score before sending a like.");
+  }
+
+  const { data: allowed, error: creditError } = await userClient.rpc("spend_credit", {
+    p_reason: `Sent a like to ${targetProfileId}`,
   });
-  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
-
-  const {
-    data: { user },
-    error: userError,
-  } = await authClient.auth.getUser();
-
-  if (userError || !user) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  if (user.id === targetProfileId) {
-    return jsonResponse({ error: "Cannot like your own profile." }, 400);
-  }
-
-  const pair = orderedPair(user.id, targetProfileId);
-  const { data: matchScore, error: matchScoreError } = await adminClient
-    .from("match_scores")
-    .select("id")
-    .eq("user_a_id", pair.userAId)
-    .eq("user_b_id", pair.userBId)
-    .maybeSingle<{ id: string }>();
-
-  if (matchScoreError) {
-    return jsonResponse({ error: matchScoreError.message }, 500);
-  }
-
-  if (!matchScore) {
-    return jsonResponse(
-      { error: "Generate a match score before sending a like." },
-      400,
-    );
-  }
-
-  const likeColumns =
-    "id, from_user_id, to_user_id, opening_message, match_score_id, status, created_at";
-  const { data: existingLike, error: existingLikeError } = await adminClient
-    .from("likes")
-    .select(likeColumns)
-    .eq("from_user_id", user.id)
-    .eq("to_user_id", targetProfileId)
-    .maybeSingle();
-
-  if (existingLikeError) {
-    return jsonResponse({ error: existingLikeError.message }, 500);
-  }
-
-  if (existingLike) {
-    return jsonResponse({ like: existingLike, existing: true });
-  }
-
-  const { data: allowed, error: creditError } = await authClient.rpc(
-    "spend_credit",
-    { p_reason: `Sent a like to ${targetProfileId}` },
-  );
-  if (creditError) {
-    return jsonResponse({ error: creditError.message }, 500);
-  }
-  if (!allowed) {
-    return jsonResponse({ error: "Credits needed" }, 402);
-  }
+  if (creditError) throw creditError;
+  if (!allowed) throw new HttpError(402, "Credits needed");
 
   const { data: like, error: likeError } = await adminClient
     .from("likes")
     .insert({
-      from_user_id: user.id,
+      from_user_id: userId,
       to_user_id: targetProfileId,
       opening_message: openingMessage,
-      match_score_id: matchScore.id,
+      match_score_id: matchScoreResult.data.id,
       status: "pending",
     })
     .select(likeColumns)
     .single();
 
-  if (likeError) {
-    return jsonResponse({ error: likeError.message }, 500);
-  }
+  if (likeError) throw likeError;
 
-  const { data: senderProfile } = await adminClient
-    .from("profiles")
-    .select("display_name")
-    .eq("id", user.id)
-    .maybeSingle<{ display_name: string | null }>();
-
-  await adminClient.from("activity_events").insert([
+  const { error: activityError } = await adminClient.from("activity_events").insert([
     {
-      user_id: user.id,
+      user_id: userId,
       event_type: "like",
       title: "You sent a like",
       description: openingMessage,
@@ -198,22 +77,21 @@ serve(async (request) => {
     {
       user_id: targetProfileId,
       event_type: "like",
-      title: `${senderProfile?.display_name?.trim() || "Someone"} liked your profile`,
+      title: `${senderName} liked your profile`,
       description: openingMessage,
-      metadata: { likeId: like.id, fromUserId: user.id },
+      metadata: { likeId: like.id, fromUserId: userId },
     },
   ]);
+  if (activityError) console.error("Failed to record like activity.", activityError);
 
-  try {
-    await sendPushNotification(supabaseUrl, supabaseServiceRoleKey, {
+  runInBackground("Like notification", () =>
+    sendPushToUser(adminClient, {
       recipientUserId: targetProfileId,
       title: "New like",
-      body: `${senderProfile?.display_name?.trim() || "Someone"} sent you a like.`,
-      data: { type: "like", likeId: like.id, fromUserId: user.id },
-    });
-  } catch (error) {
-    console.error("Failed to send like notification.", error);
-  }
+      body: `${senderName} sent you a like.`,
+      data: { type: "like", likeId: like.id, fromUserId: userId },
+    })
+  );
 
   return jsonResponse({ like });
 });

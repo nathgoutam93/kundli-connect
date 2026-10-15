@@ -8,6 +8,7 @@ import {
   type UserProfile,
 } from '@/constants/mock-data';
 import { useAccountQueries, useChatsQuery, useDiscoverProfilesQuery, useDomainMutations, useIncomingLikesQuery, useProfileQuery } from '@/hooks/use-domain-data';
+import { createPendingMessage } from '@/lib/chat-cache';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
 import { ensureCurrentUserProfile, registerCurrentUserPushToken } from '@/services/supabase-auth-service';
@@ -83,7 +84,10 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
         profile: { ...profile, updatedAt: new Date().toISOString() },
         onboardingCompleted: true,
       });
-      await mutations.generateKundli.mutateAsync();
+      // The Kundli is normally generated on the birth-location step; only retry if that failed.
+      if (profile.kundliStatus !== 'generated') {
+        await mutations.generateKundli.mutateAsync();
+      }
     },
     updateProfile,
     generateKundli: () => mutations.generateKundli.mutateAsync(),
@@ -100,9 +104,11 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       await mutations.sendLike.mutateAsync({ profileId, message });
       return true;
     },
-    replyToLike: async (likeId, message) => (await mutations.replyToLike.mutateAsync({ likeId, message })).id,
+    replyToLike: async (likeId, message) => mutations.replyToLike.mutateAsync({ likeId, message }),
     dismissLike: async (likeId) => mutations.dismissLike.mutateAsync(likeId),
-    sendChatMessage: async (chatId, text) => { await mutations.sendMessage.mutateAsync({ chatId, text }); },
+    sendChatMessage: async (chatId, text) => {
+      await mutations.sendMessage.mutateAsync({ chatId, text, pending: createPendingMessage(text) });
+    },
     markChatRead: async (chatId) => { await mutations.markRead.mutateAsync(chatId); },
     purchaseCredits: async (amount) => mutations.purchaseCredits.mutateAsync(amount),
     purchaseSubscription: async (planId) => mutations.activateSubscription.mutateAsync(planId),
