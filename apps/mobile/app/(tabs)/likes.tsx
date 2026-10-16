@@ -22,7 +22,7 @@ import { type LikeItem } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 import { useRefreshControl } from '@/hooks/use-refresh-control';
 import { haptics } from '@/lib/haptics';
-import { listItemEntering, listItemExiting, listItemLayout } from '@/lib/list-motion';
+import { listItemEntering, listItemLayout } from '@/lib/list-motion';
 
 type ScoreModalTab = 'score' | 'profile';
 
@@ -108,11 +108,8 @@ export default function LikesScreen() {
                     refreshControl={refreshControl}
                     showsVerticalScrollIndicator={false}>
                     {likes.map((like, index) => (
-                        <Animated.View
-                            key={like.id}
-                            entering={listItemEntering(index)}
-                            exiting={listItemExiting}
-                            layout={listItemLayout}>
+                        // No exit animation: the card owns the open score modal, which must close with it.
+                        <Animated.View key={like.id} entering={listItemEntering(index)} layout={listItemLayout}>
                             <LikeCard
                                 like={like}
                                 reply={replyDrafts[like.id] ?? ''}

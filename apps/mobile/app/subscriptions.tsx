@@ -54,6 +54,8 @@ export default function SubscriptionsScreen() {
     try {
       await restorePurchases();
       toast.info('Your credits and plan are up to date.', 'Purchases restored');
+    } catch (error) {
+      Alert.alert('Could not restore', error instanceof Error ? error.message : 'Please try again later.');
     } finally {
       setBusyProductId(null);
     }

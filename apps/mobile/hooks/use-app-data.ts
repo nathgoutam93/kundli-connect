@@ -129,7 +129,9 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       mutations.purchase.mutateAsync({ type: 'subscription', productId: planId, customer: { name: profile.name, email: profile.email, phone: profile.phoneNumber } }),
     // Purchases are recorded server-side, so restoring means re-reading the account.
     restorePurchases: async () => {
-      await Promise.all([account.subscription.refetch(), account.credits.refetch()]);
+      const results = await Promise.all([account.subscription.refetch(), account.credits.refetch()]);
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
     },
     updateNotifications: async (updates) =>
       mutations.updateSettings.mutateAsync({ notifications: { ...settings.notifications, ...updates }, privacy: settings.privacy }),

@@ -319,7 +319,7 @@ function SendButton({ canSend, onSend }: { canSend: boolean; onSend: () => void 
     }, [canSend, ready]);
 
     const style = useAnimatedStyle(() => ({
-        transform: [{ scale: 0.82 + 0.18 * ready.value }, { rotate: `${(1 - ready.value) * -45}deg` }],
+        transform: [{ scale: 0.84 + 0.16 * ready.value }],
     }));
 
     return (
