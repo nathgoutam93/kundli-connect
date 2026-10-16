@@ -1,7 +1,7 @@
 const appJson = require('./app.json');
 
-const googleMapsApiKey =
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+// Only the Android map needs a Google key (iOS uses Apple Maps; place search uses Photon).
+const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 const appConfig = appJson.expo;
 

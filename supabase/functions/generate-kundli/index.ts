@@ -3,6 +3,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.106.2';
 import { HttpError, jsonResponse, requiredEnv, servePost } from '../_shared/http.ts';
 import { type ChartHouse, normaliseChartHouses } from '../_shared/kundli-chart.ts';
 import { getRequestContext } from '../_shared/supabase.ts';
+import { resolveUtcOffset } from '../_shared/timezone.ts';
 
 type ProfileBirthDetails = {
   id: string;
@@ -408,7 +409,7 @@ servePost(async (request) => {
     min,
     lat: profile.birth_latitude,
     lon: profile.birth_longitude,
-    tzone: Number(profile.birth_timezone),
+    tzone: resolveUtcOffset(profile.birth_timezone, profile.date_of_birth, profile.time_of_birth),
   };
 
   // The astrology calls are paid and deterministic: reuse the stored Kundli when it was built

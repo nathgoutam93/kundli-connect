@@ -127,10 +127,13 @@ Push goes through the Expo push service (`exp.host`), which needs platform crede
       `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
       `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`, `EXPO_PUBLIC_SOCIAL_AUTH_PROVIDERS` (and the Google
       client IDs if you use the native picker).
-- [ ] **Restrict the Google Maps/Places key** in Google Cloud to your Android package + SHA-1 and
-      iOS bundle ID, and to the APIs you use. `EXPO_PUBLIC_` values are visible to anyone with
-      the app.
-- [ ] Set a budget alert in Google Cloud for the Maps/Places APIs.
+- [ ] **Restrict the Google Maps key** in Google Cloud to your Android package + SHA-1 and to the
+      Maps SDK for Android (it's only used for the Android map). `EXPO_PUBLIC_` values are
+      visible to anyone with the app.
+- [ ] Set a budget alert in Google Cloud for the Maps SDK.
+- [ ] **Place search (Photon):** the public server is free but fair-use with no uptime guarantee.
+      Before launch, decide whether that's enough or run your own Photon (open source) and set
+      `EXPO_PUBLIC_PHOTON_URL`. Keep the OpenStreetMap credit shown under the search field.
 - [ ] Replace placeholder icons/splash if needed; the Android adaptive icon background is still
       the default `#E6F4FE`, not the app's dark theme.
 - [ ] Set `version` and confirm `eas.json` production profile (`autoIncrement` is on).

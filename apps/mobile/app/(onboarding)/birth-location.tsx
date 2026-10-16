@@ -1,21 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
+import WheelPicker from '@quidone/react-native-wheel-picker';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Location from 'expo-location';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { BirthLocationMap } from '@/components/birth-location-map';
 import { OnboardingStep } from '@/components/onboarding-step';
 import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { TextField } from '@/components/ui/text-field';
-import { colors, radius, space } from '@/constants/theme';
+import { colors, fontFamily, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { formatUtcOffset, isNumericOffset, MANUAL_OFFSETS, offsetForLocalTime, zoneForCoordinate } from '@/lib/timezone';
+import { geocoder, type PlaceResult } from '@/services/geocoding';
 
 const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-const googlePlacesApiKey = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? googleMapsApiKey;
 const hasExpoMapsNativeModule =
   Platform.OS === 'web' || Boolean(requireOptionalNativeModule('ExpoMaps'));
 
@@ -27,6 +31,9 @@ const DEFAULT_BIRTH_COORDINATE = {
 const MIN_MAP_DELTA = 0.01;
 const MAX_MAP_DELTA = 80;
 const SELECTED_PLACE_MAP_DELTA = 0.25;
+/** Wait for a pause in typing before searching: keeps us well inside Photon's fair use. */
+const SEARCH_DEBOUNCE_MS = 400;
+const OFFSET_OPTIONS = MANUAL_OFFSETS.map((hours) => ({ value: String(hours), label: formatUtcOffset(hours) }));
 
 type Coordinate = {
   latitude: number;
@@ -38,17 +45,11 @@ type Region = Coordinate & {
   longitudeDelta: number;
 };
 
-type PlaceSuggestion = {
-  description: string;
-  placeId: string;
-};
-
-function isInRange(value: string, min: number, max: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= min && parsed <= max;
-}
-
 function getInitialCoordinate(latitude: string, longitude: string): Coordinate {
+  // Number('') is 0, which would drop new users' pin in the Atlantic at 0,0.
+  if (!latitude.trim() || !longitude.trim()) {
+    return DEFAULT_BIRTH_COORDINATE;
+  }
   const parsedLatitude = Number(latitude);
   const parsedLongitude = Number(longitude);
 
@@ -77,39 +78,46 @@ function coordinateToRegion(coordinate: Coordinate): Region {
   };
 }
 
-function createPlacesSessionToken() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-const PLACES_UNAVAILABLE = 'Place search is unavailable right now. Type your birth town and drop a pin on the map.';
-
-/** "5.5" → "UTC+05:30"; null when the value isn't a plausible offset. */
-function formatUtcOffset(value: string) {
-  const hours = Number(value.trim());
-  if (!value.trim() || !Number.isFinite(hours) || hours < -12 || hours > 14) {
-    return null;
-  }
-  const totalMinutes = Math.round(Math.abs(hours) * 60);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `UTC${hours < 0 ? '−' : '+'}${pad(Math.floor(totalMinutes / 60))}:${pad(totalMinutes % 60)}`;
-}
-
 export default function BirthLocationScreen() {
   const { profile, updateProfile, generateKundli, isServiceBusy } = useAppData();
-  const placesSessionTokenRef = useRef(createPlacesSessionToken());
   const initialCoordinate = useMemo(
     () => getInitialCoordinate(profile.birthLatitude, profile.birthLongitude),
     [profile.birthLatitude, profile.birthLongitude]
   );
   const [birthPlace, setBirthPlace] = useState(profile.birthPlace);
-  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceResult[]>([]);
   const [isFetchingPlaces, setIsFetchingPlaces] = useState(false);
   const [placesError, setPlacesError] = useState('');
   const [hasSelectedSuggestion, setHasSelectedSuggestion] = useState(Boolean(profile.birthPlace));
   const [selectedCoordinate, setSelectedCoordinate] = useState<Coordinate>(initialCoordinate);
   const [mapRegion, setMapRegion] = useState<Region>(() => coordinateToRegion(initialCoordinate));
-  const [birthTimezone, setBirthTimezone] = useState(profile.birthTimezone || '5.5');
+  // The timezone normally comes from the pin; a manual UTC offset is the fallback for spots where
+  // it can't be detected (and older profiles that stored one).
+  const [manualOffset, setManualOffset] = useState<string | null>(() =>
+    isNumericOffset(profile.birthTimezone) ? profile.birthTimezone.trim() : null
+  );
+  const [isOffsetPickerOpen, setIsOffsetPickerOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  const detectedZone = useMemo(
+    () => zoneForCoordinate(selectedCoordinate.latitude, selectedCoordinate.longitude),
+    [selectedCoordinate.latitude, selectedCoordinate.longitude]
+  );
+  const birthTimezone = manualOffset ?? detectedZone;
+  const hasBirthMoment = Boolean(profile.dateOfBirth && profile.timeOfBirth);
+  const previewOffset = useMemo(() => {
+    if (manualOffset) {
+      return Number(manualOffset);
+    }
+    if (!detectedZone) {
+      return null;
+    }
+    if (hasBirthMoment) {
+      return offsetForLocalTime(detectedZone, profile.dateOfBirth, profile.timeOfBirth);
+    }
+    const now = new Date();
+    return offsetForLocalTime(detectedZone, now.toISOString().slice(0, 10), `${now.getUTCHours()}:${now.getUTCMinutes()}`);
+  }, [detectedZone, hasBirthMoment, manualOffset, profile.dateOfBirth, profile.timeOfBirth]);
 
   useEffect(() => {
     let isMounted = true;
@@ -151,12 +159,6 @@ export default function BirthLocationScreen() {
   }, []);
 
   useEffect(() => {
-    if (!googlePlacesApiKey) {
-      // Configuration problems are for developers; people get a way forward instead.
-      setPlacesError(__DEV__ ? 'Google Places API key is not configured.' : PLACES_UNAVAILABLE);
-      return;
-    }
-
     const query = birthPlace.trim();
 
     if (query.length < 3 || hasSelectedSuggestion) {
@@ -165,62 +167,36 @@ export default function BirthLocationScreen() {
       return;
     }
 
-    let isMounted = true;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
         setIsFetchingPlaces(true);
-        const response = await fetch(
-          `https://maps.googleapis.com/maps/api/place/autocomplete/json?${[
-            `input=${encodeURIComponent(query)}`,
-            `key=${encodeURIComponent(googlePlacesApiKey)}`,
-            `sessiontoken=${encodeURIComponent(placesSessionTokenRef.current)}`,
-            'types=geocode',
-          ].join('&')}`
-        );
-        const data = (await response.json()) as {
-          error_message?: string;
-          status?: string;
-          predictions?: { description: string; place_id: string }[];
-        };
-
-        if (!isMounted) {
+        const results = await geocoder.search(query, controller.signal);
+        if (controller.signal.aborted) {
           return;
         }
-
-        if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-          setPlaceSuggestions([]);
-          if (__DEV__) {
-            console.info('Google Places autocomplete error.', data.status, data.error_message);
-          }
-          setPlacesError(PLACES_UNAVAILABLE);
-          return;
-        }
-
-        setPlacesError('');
-        setPlaceSuggestions(
-          (data.predictions ?? []).slice(0, 5).map((prediction) => ({
-            description: prediction.description,
-            placeId: prediction.place_id,
-          }))
-        );
+        setPlacesError(results.length === 0 ? 'No matching places. Try the nearest town or city.' : '');
+        setPlaceSuggestions(results);
       } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
         if (__DEV__) {
-          console.info('Google Places autocomplete failed.', error);
+          console.info('Place search failed.', error);
         }
-        if (isMounted) {
-          setPlaceSuggestions([]);
-          setPlacesError('Couldn’t search places. Check your connection and try again.');
-        }
+        setPlaceSuggestions([]);
+        setPlacesError('Place search is unavailable right now. Drop a pin on the map instead.');
       } finally {
-        if (isMounted) {
+        if (!controller.signal.aborted) {
           setIsFetchingPlaces(false);
         }
       }
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
-      isMounted = false;
+      controller.abort();
       clearTimeout(timer);
+      setIsFetchingPlaces(false);
     };
   }, [birthPlace, hasSelectedSuggestion]);
 
@@ -231,7 +207,7 @@ export default function BirthLocationScreen() {
       selectedCoordinate.latitude <= 90 &&
       selectedCoordinate.longitude >= -180 &&
       selectedCoordinate.longitude <= 180 &&
-      isInRange(birthTimezone, -12, 14),
+      Boolean(birthTimezone),
     [birthPlace, birthTimezone, selectedCoordinate.latitude, selectedCoordinate.longitude]
   );
   const canRenderMap =
@@ -248,79 +224,36 @@ export default function BirthLocationScreen() {
     }));
   }
 
+  /** A pin moved by hand: detect the timezone afresh for the new spot. */
+  function handleMapCoordinateChange(coordinate: Coordinate) {
+    updateSelectedCoordinate(coordinate);
+    setManualOffset(null);
+    setIsOffsetPickerOpen(false);
+  }
+
   function handleBirthPlaceChange(value: string) {
     setBirthPlace(value);
     setHasSelectedSuggestion(false);
     setPlacesError('');
   }
 
-  async function selectPlaceSuggestion(suggestion: PlaceSuggestion) {
-    if (!googlePlacesApiKey) {
-      return;
-    }
-
-    setBirthPlace(suggestion.description);
+  function selectPlaceSuggestion(place: PlaceResult) {
+    const nextCoordinate = { latitude: place.latitude, longitude: place.longitude };
+    setBirthPlace(place.label);
     setHasSelectedSuggestion(true);
     setPlaceSuggestions([]);
-
-    try {
-      setIsFetchingPlaces(true);
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/details/json?${[
-          `place_id=${encodeURIComponent(suggestion.placeId)}`,
-          `key=${encodeURIComponent(googlePlacesApiKey)}`,
-          `sessiontoken=${encodeURIComponent(placesSessionTokenRef.current)}`,
-          'fields=formatted_address,geometry,utc_offset',
-        ].join('&')}`
-      );
-      const data = (await response.json()) as {
-        status?: string;
-        result?: {
-          formatted_address?: string;
-          utc_offset?: number;
-          geometry?: {
-            location?: {
-              lat: number;
-              lng: number;
-            };
-          };
-        };
-      };
-      const location = data.result?.geometry?.location;
-
-      if (data.status !== 'OK' || !location) {
-        return;
-      }
-
-      const nextCoordinate = {
-        latitude: location.lat,
-        longitude: location.lng,
-      };
-
-      setBirthPlace(data.result?.formatted_address || suggestion.description);
-      setSelectedCoordinate(nextCoordinate);
-      setMapRegion({
-        ...nextCoordinate,
-        latitudeDelta: SELECTED_PLACE_MAP_DELTA,
-        longitudeDelta: SELECTED_PLACE_MAP_DELTA,
-      });
-
-      if (typeof data.result?.utc_offset === 'number') {
-        setBirthTimezone(String(data.result.utc_offset / 60));
-      }
-
-      placesSessionTokenRef.current = createPlacesSessionToken();
-    } catch (error) {
-      if (__DEV__) {
-        console.info('Google Place details lookup failed.', error);
-      }
-    } finally {
-      setIsFetchingPlaces(false);
-    }
+    setSelectedCoordinate(nextCoordinate);
+    setMapRegion({
+      ...nextCoordinate,
+      latitudeDelta: SELECTED_PLACE_MAP_DELTA,
+      longitudeDelta: SELECTED_PLACE_MAP_DELTA,
+    });
+    setManualOffset(null);
+    setIsOffsetPickerOpen(false);
   }
 
   async function handleContinue() {
-    if (!isFormValid || isServiceBusy) {
+    if (!isFormValid || !birthTimezone || isServiceBusy) {
       return;
     }
 
@@ -330,7 +263,7 @@ export default function BirthLocationScreen() {
       birthPlace: birthPlace.trim(),
       birthLatitude: selectedCoordinate.latitude.toFixed(6),
       birthLongitude: selectedCoordinate.longitude.toFixed(6),
-      birthTimezone: birthTimezone.trim(),
+      birthTimezone,
       kundliStatus: 'pending',
     });
 
@@ -378,7 +311,7 @@ export default function BirthLocationScreen() {
           <View style={styles.suggestionList}>
             {placeSuggestions.map((suggestion, index) => (
               <Pressable
-                key={suggestion.placeId}
+                key={suggestion.id}
                 style={({ pressed }) => [
                   styles.suggestionItem,
                   index > 0 && styles.suggestionDivider,
@@ -387,11 +320,16 @@ export default function BirthLocationScreen() {
                 onPress={() => selectPlaceSuggestion(suggestion)}>
                 <Ionicons name="location-outline" size={18} color={colors.accent} />
                 <AppText variant="callout" style={styles.suggestionText}>
-                  {suggestion.description}
+                  {suggestion.label}
                 </AppText>
               </Pressable>
             ))}
           </View>
+        ) : null}
+        {!placesError ? (
+          <AppText variant="caption" color={colors.textFaint}>
+            {geocoder.attribution}
+          </AppText>
         ) : null}
       </View>
 
@@ -412,7 +350,7 @@ export default function BirthLocationScreen() {
                 region={mapRegion}
                 coordinate={selectedCoordinate}
                 markerTitle={birthPlace.trim() || 'Birth location'}
-                onCoordinateChange={updateSelectedCoordinate}
+                onCoordinateChange={handleMapCoordinateChange}
               />
               <View style={styles.mapControls}>
                 <IconButton icon="remove" variant="glass" size={36} accessibilityLabel="Zoom out map" onPress={() => zoomMap(2)} />
@@ -433,15 +371,75 @@ export default function BirthLocationScreen() {
         </AppText>
       </View>
 
-      <TextField
-        label="Timezone"
-        value={birthTimezone}
-        onChangeText={setBirthTimezone}
-        placeholder="5.5"
-        keyboardType="numbers-and-punctuation"
-        returnKeyType="done"
-        hint={`${formatUtcOffset(birthTimezone) ?? 'Hours from UTC, e.g. 5.5 for India'} · filled in when you pick a place`}
-      />
+      <View style={styles.section}>
+        <View style={styles.timezoneCard}>
+          <View style={styles.timezoneIcon}>
+            <Ionicons name="time-outline" size={18} color={colors.accent} />
+          </View>
+          <View style={styles.timezoneText}>
+            <AppText variant="overline" color={colors.textMuted}>
+              Timezone
+            </AppText>
+            <AppText variant="bodyStrong">
+              {manualOffset
+                ? `${formatUtcOffset(Number(manualOffset))}, set manually`
+                : detectedZone
+                  ? detectedZone.replace(/_/g, ' ')
+                  : 'Couldn’t detect for this spot'}
+            </AppText>
+            <AppText variant="footnote" color={colors.textMuted}>
+              {manualOffset
+                ? 'Used as chosen. Pick a place to detect it automatically.'
+                : detectedZone && previewOffset !== null
+                  ? `${formatUtcOffset(previewOffset)} ${hasBirthMoment ? 'at your time of birth' : 'today'} · detected from your birthplace`
+                  : detectedZone
+                    ? 'Detected from your birthplace'
+                    : 'Move the pin onto land, or set the UTC offset yourself.'}
+            </AppText>
+          </View>
+        </View>
+        <View style={styles.timezoneActions}>
+          <Button
+            label={isOffsetPickerOpen ? 'Done' : manualOffset ? 'Change offset' : 'Set offset manually'}
+            variant="ghost"
+            size="sm"
+            fullWidth={false}
+            onPress={() => {
+              if (!isOffsetPickerOpen && !manualOffset) {
+                setManualOffset(String(previewOffset ?? 5.5));
+              }
+              setIsOffsetPickerOpen((open) => !open);
+            }}
+          />
+          {manualOffset && detectedZone ? (
+            <Button
+              label="Use detected timezone"
+              variant="ghost"
+              size="sm"
+              fullWidth={false}
+              onPress={() => {
+                setManualOffset(null);
+                setIsOffsetPickerOpen(false);
+              }}
+            />
+          ) : null}
+        </View>
+        {isOffsetPickerOpen ? (
+          <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} style={styles.offsetPicker}>
+            <WheelPicker
+              data={OFFSET_OPTIONS}
+              value={manualOffset ?? '5.5'}
+              itemHeight={44}
+              visibleItemCount={5}
+              enableScrollByTapOnItem
+              onValueChanged={({ item }) => setManualOffset(item.value)}
+              width="100%"
+              itemTextStyle={styles.offsetText}
+              overlayItemStyle={styles.offsetSelection}
+            />
+          </Animated.View>
+        ) : null}
+      </View>
     </OnboardingStep>
   );
 }
@@ -495,6 +493,49 @@ const styles = StyleSheet.create({
     right: space.sm,
     bottom: space.sm,
     gap: space.xs,
+  },
+  timezoneCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  timezoneIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft,
+  },
+  timezoneText: {
+    flex: 1,
+    gap: 2,
+  },
+  timezoneActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.xs,
+  },
+  offsetPicker: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSunken,
+    overflow: 'hidden',
+  },
+  offsetText: {
+    fontFamily: fontFamily.bodyMedium,
+    fontSize: 18,
+    color: colors.text,
+  },
+  offsetSelection: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
   },
   mapFallback: {
     flex: 1,
