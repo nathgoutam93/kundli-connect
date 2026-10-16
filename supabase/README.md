@@ -63,6 +63,10 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
   API writes keep the stored birth date, time, place, coordinates and timezone (and onboarding
   can't be reset). The Kundli and every match score depend on them. Support can still correct
   them with the service role.
+- **Adults only.** The same trigger refuses an app write that sets a date of birth under 18
+  years (or finishes onboarding without one); `latest_adult_birth_date()` gives the cutoff,
+  using the earliest time zone so nobody is refused on their 18th birthday. The service role
+  isn't checked.
 - **No direct writes to server-owned tables.** Likes are created only by `create-like` (which
   charges a credit and needs a match score); recipients may only move a pending like to
   `dismissed`. Messages are written only by `send_chat_message` / `reply_to_like` (max 2000

@@ -81,6 +81,7 @@ export default function RootLayout() {
               <Stack.Screen name="subscriptions" />
               <Stack.Screen name="blocked-users" />
               <Stack.Screen name="delete-account" />
+              <Stack.Screen name="legal/[doc]" />
               <Stack.Screen name="auth/callback" />
             </Stack>
             <StatusBar style="light" />

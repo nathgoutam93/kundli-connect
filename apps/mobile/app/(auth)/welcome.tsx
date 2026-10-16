@@ -8,6 +8,8 @@ import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
 import { artworkScrimGradient, colors, fontFamily, gutter, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { MINIMUM_AGE } from '@/lib/age';
+import { openLegalDocument } from '@/lib/legal';
 import { enabledSocialProviders, type SocialProvider } from '@/services/auth';
 
 const PROVIDER_BUTTONS: Record<
@@ -97,6 +99,28 @@ export default function WelcomeScreen() {
                 </AppText>
               </AppText>
             </Pressable>
+
+            <AppText variant="caption" color={colors.textFaint} align="center" style={styles.consent}>
+              By continuing, you confirm you’re {MINIMUM_AGE} or older and agree to our{' '}
+              <AppText
+                variant="caption"
+                color={colors.textMuted}
+                style={styles.consentLink}
+                accessibilityRole="link"
+                onPress={() => void openLegalDocument('terms')}>
+                Terms
+              </AppText>{' '}
+              and{' '}
+              <AppText
+                variant="caption"
+                color={colors.textMuted}
+                style={styles.consentLink}
+                accessibilityRole="link"
+                onPress={() => void openLegalDocument('privacy')}>
+                Privacy Policy
+              </AppText>
+              .
+            </AppText>
           </View>
         </View>
       </SafeAreaView>
@@ -145,5 +169,11 @@ const styles = StyleSheet.create({
   },
   authLinkStrong: {
     fontFamily: fontFamily.bodySemiBold,
+  },
+  consent: {
+    paddingHorizontal: space.md,
+  },
+  consentLink: {
+    textDecorationLine: 'underline',
   },
 });

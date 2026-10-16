@@ -10,6 +10,7 @@ import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Card } from '@/components/ui/card';
 import { colors, fontFamily, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { isAdultBirthDate, latestAdultBirthDate, MINIMUM_AGE } from '@/lib/age';
 
 const MIN_BIRTH_YEAR = 1900;
 const FALLBACK_BIRTH_YEAR = 2000;
@@ -40,16 +41,21 @@ function getDaysInMonth(year: number, month: number) {
     return new Date(year, month, 0).getDate();
 }
 
+// The pickers stop at the latest birth date of someone who is already 18.
+function getMaxYear() {
+    return latestAdultBirthDate().getFullYear();
+}
+
 function getMaxMonth(year: number) {
-    const today = new Date();
-    return year === today.getFullYear() ? today.getMonth() + 1 : 12;
+    const latest = latestAdultBirthDate();
+    return year >= latest.getFullYear() ? latest.getMonth() + 1 : 12;
 }
 
 function getMaxDay(year: number, month: number) {
-    const today = new Date();
+    const latest = latestAdultBirthDate();
 
-    if (year === today.getFullYear() && month === today.getMonth() + 1) {
-        return today.getDate();
+    if (year >= latest.getFullYear() && month >= latest.getMonth() + 1) {
+        return latest.getDate();
     }
 
     return getDaysInMonth(year, month);
@@ -64,13 +70,13 @@ function isValidDate(day: string, month: string, year: string) {
     const numericMonth = Number(month);
     const numericYear = Number(year);
     const date = new Date(numericYear, numericMonth - 1, numericDay);
-    const today = new Date();
 
     return (
+        numericYear >= MIN_BIRTH_YEAR &&
         date.getFullYear() === numericYear &&
         date.getMonth() === numericMonth - 1 &&
         date.getDate() === numericDay &&
-        date <= today
+        isAdultBirthDate(numericYear, numericMonth, numericDay)
     );
 }
 
@@ -186,7 +192,7 @@ export default function KundliDetailsScreen() {
     const selectedYearNumber = Number(selectedYear);
     const selectedMonthNumber = Number(selectedMonth);
     const selectedDayNumber = Number(selectedDay);
-    const currentYear = new Date().getFullYear();
+    const maxYear = getMaxYear();
     const dayOptions = useMemo(
         () => buildNumberOptions(1, getMaxDay(selectedYearNumber, selectedMonthNumber)),
         [selectedMonthNumber, selectedYearNumber]
@@ -196,8 +202,8 @@ export default function KundliDetailsScreen() {
         [selectedYearNumber]
     );
     const yearOptions = useMemo(
-        () => buildNumberOptions(MIN_BIRTH_YEAR, currentYear, false).reverse(),
-        [currentYear]
+        () => buildNumberOptions(MIN_BIRTH_YEAR, maxYear, false).reverse(),
+        [maxYear]
     );
     const hourOptions = useMemo(() => buildNumberOptions(0, 23), []);
     const minuteSecondOptions = useMemo(() => buildNumberOptions(0, 59), []);
@@ -339,6 +345,13 @@ export default function KundliDetailsScreen() {
                     />
                 </View>
             </Card>
+
+            <View style={styles.tip}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={colors.textMuted} />
+                <AppText variant="footnote" color={colors.textMuted} style={styles.tipText}>
+                    Kundali Konnect is only for people aged {MINIMUM_AGE} or over.
+                </AppText>
+            </View>
 
             <View style={styles.tip}>
                 <Ionicons name="information-circle-outline" size={18} color={colors.textMuted} />
