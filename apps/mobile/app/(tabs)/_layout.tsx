@@ -124,12 +124,6 @@ export default function MainTabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="activity"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',

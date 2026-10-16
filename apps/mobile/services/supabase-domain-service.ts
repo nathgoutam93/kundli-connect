@@ -2,7 +2,6 @@ import {
   DEFAULT_NOTIFICATIONS,
   DEFAULT_PRIVACY,
   DEFAULT_SUBSCRIPTION,
-  type ActivityItem,
   type CreditHistoryItem,
   type CreditPack,
   type NotificationSettings,
@@ -81,24 +80,6 @@ export async function updateSettings(notifications: NotificationSettings, privac
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;
-}
-
-export async function getActivity(): Promise<ActivityItem[]> {
-  const { data, error } = await getSupabaseClient()
-    .from('activity_events')
-    .select('id, event_type, title, description, read_at, created_at')
-    .order('created_at', { ascending: false })
-    .limit(100);
-  if (error) throw error;
-  return (data ?? []).map((item) => ({
-    id: item.id,
-    createdAt: item.created_at,
-    type: item.event_type as ActivityItem['type'],
-    title: item.title,
-    description: item.description,
-    time: new Date(item.created_at).toLocaleDateString(),
-    readAt: item.read_at ?? undefined,
-  }));
 }
 
 const CREDIT_HISTORY_LIMIT = 50;

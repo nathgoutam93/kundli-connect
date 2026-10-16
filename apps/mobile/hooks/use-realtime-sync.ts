@@ -75,7 +75,6 @@ export function useRealtimeSync() {
         { event: '*', schema: 'public', table: 'likes', filter: `to_user_id=eq.${userId}` },
         () => {
           void client.invalidateQueries({ queryKey: queryKeys.incomingLikes(userId) });
-          void client.invalidateQueries({ queryKey: queryKeys.activity(userId) });
         }
       )
       .on(
@@ -83,7 +82,6 @@ export function useRealtimeSync() {
         { event: 'INSERT', schema: 'public', table: 'chat_participants', filter: `user_id=eq.${userId}` },
         () => {
           void client.invalidateQueries({ queryKey: chatPreviewsKey });
-          void client.invalidateQueries({ queryKey: queryKeys.activity(userId) });
         }
       )
       .subscribe((status) => {

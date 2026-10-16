@@ -33,7 +33,6 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     discoverQuery.error,
     likesQuery.error,
     chatsQuery.error,
-    account.activity.error,
     account.credits.error,
     account.settings.error,
     account.subscription.error,
@@ -67,7 +66,6 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     likedProfileIds: [],
     likes: likesQuery.data ?? [],
     chats: chatsQuery.data ?? [],
-    activity: account.activity.data ?? [],
     creditsBalance: account.credits.data?.balance ?? 0,
     creditHistory: account.credits.data?.history ?? [],
     subscription: account.subscription.data ?? DEFAULT_SUBSCRIPTION,
@@ -163,7 +161,6 @@ export type AppData = {
   likedProfileIds: string[];
   likes: NonNullable<ReturnType<typeof useIncomingLikesQuery>['data']>;
   chats: NonNullable<ReturnType<typeof useChatsQuery>['data']>;
-  activity: NonNullable<ReturnType<typeof useAccountQueries>['activity']['data']>;
   creditsBalance: number;
   creditHistory: NonNullable<ReturnType<typeof useAccountQueries>['credits']['data']>['history'];
   subscription: NonNullable<ReturnType<typeof useAccountQueries>['subscription']['data']>;

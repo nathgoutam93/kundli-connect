@@ -14,7 +14,6 @@ import { useAuth } from '@/providers/auth-provider';
 import { purchaseProduct, type CheckoutCustomer, type ProductType } from '@/services/checkout';
 import {
   dismissLike,
-  getActivity,
   getCreditAccount,
   getCreditPacks,
   getSettings,
@@ -111,7 +110,6 @@ export function useAccountQueries() {
   const { user } = useAuth();
   const id = user?.id ?? 'anonymous';
   return {
-    activity: useQuery({ queryKey: queryKeys.activity(id), queryFn: getActivity, enabled: Boolean(user) }),
     credits: useQuery({ queryKey: queryKeys.creditAccount(id), queryFn: getCreditAccount, enabled: Boolean(user) }),
     settings: useQuery({ queryKey: queryKeys.settings(id), queryFn: getSettings, enabled: Boolean(user), staleTime: profileStaleTime }),
     subscription: useQuery({ queryKey: queryKeys.subscription(id), queryFn: getSubscription, enabled: Boolean(user), staleTime: profileStaleTime }),
@@ -158,11 +156,11 @@ export function useDomainMutations() {
         return { previous };
       },
       onError: (_error, _vars, context) => client.setQueryData(queryKeys.discoverProfiles(id), context?.previous),
-      onSuccess: () => invalidate(queryKeys.discoverProfiles(id), queryKeys.sentLikes(id), queryKeys.creditAccount(id), queryKeys.activity(id)),
+      onSuccess: () => invalidate(queryKeys.discoverProfiles(id), queryKeys.sentLikes(id), queryKeys.creditAccount(id)),
     }),
     replyToLike: useMutation({
       mutationFn: ({ likeId, message }: { likeId: string; message: string }) => replyToLike(likeId, message),
-      onSuccess: () => invalidate(queryKeys.incomingLikes(id), queryKeys.chatPreviews(id), queryKeys.activity(id)),
+      onSuccess: () => invalidate(queryKeys.incomingLikes(id), queryKeys.chatPreviews(id)),
     }),
     dismissLike: useMutation({
       mutationFn: dismissLike,
@@ -218,7 +216,7 @@ export function useDomainMutations() {
       mutationFn: ({ type, productId, customer }: { type: ProductType; productId: string; customer: CheckoutCustomer }) =>
         purchaseProduct({ type, id: productId }, customer),
       // Refresh even after cancelled/failed attempts: a webhook may have completed it meanwhile.
-      onSettled: () => invalidate(queryKeys.creditAccount(id), queryKeys.subscription(id), queryKeys.activity(id)),
+      onSettled: () => invalidate(queryKeys.creditAccount(id), queryKeys.subscription(id)),
     }),
     updateSettings: useMutation({
       mutationFn: ({ notifications, privacy }: Parameters<typeof updateSettings> extends [infer A, infer B] ? { notifications: A; privacy: B } : never) =>

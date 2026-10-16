@@ -119,16 +119,6 @@ export type ChatPreview = {
   messages: ChatMessage[];
 };
 
-export type ActivityItem = {
-  id: string;
-  createdAt: string;
-  type: 'match' | 'like' | 'message' | 'profile' | 'credit' | 'subscription';
-  title: string;
-  description: string;
-  time: string;
-  readAt?: string;
-};
-
 export type CreditHistoryItem = {
   id: string;
   createdAt: string;
