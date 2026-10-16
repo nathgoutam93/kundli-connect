@@ -119,6 +119,14 @@ where reported_user_id = '<reported user id>' and status = 'open';
 For serious cases (e.g. a minor, threats), delete the account from Authentication → Users and
 clear its Storage folders. Use `status = 'dismissed'` for reports that need no action.
 
+## Birth timezones
+
+`profiles.birth_timezone` holds the IANA zone detected from the birthplace's coordinates in the
+app (e.g. `Asia/Kolkata`), or a fixed UTC offset in hours (`5.5`) for older profiles and manual
+overrides. `_shared/timezone.ts` turns it into the offset in force at the birth date and time
+(daylight saving and historical changes included, e.g. UTC+6:30 in India in 1942-45) before
+calling AstrologyAPI, in both `generate-kundli` and `generate-match-score`.
+
 ## Kundli charts
 
 `generate-kundli` calls AstrologyAPI for the details (`astro_details`), the chart images

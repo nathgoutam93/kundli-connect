@@ -1,6 +1,7 @@
 import { assertCanInteract, refundCredit, requireUuid, spendCredit } from "../_shared/guards.ts";
 import { HttpError, jsonResponse, readJson, requiredEnv, servePost } from "../_shared/http.ts";
 import { getRequestContext, orderedPair } from "../_shared/supabase.ts";
+import { resolveUtcOffset } from "../_shared/timezone.ts";
 
 type ProfileBirthDetails = {
   id: string;
@@ -239,7 +240,7 @@ function toAstrologyBirthBody(profile: ProfileBirthDetails, prefix: "m" | "f") {
     [`${prefix}_min`]: min,
     [`${prefix}_lat`]: profile.birth_latitude,
     [`${prefix}_lon`]: profile.birth_longitude,
-    [`${prefix}_tzone`]: Number(profile.birth_timezone),
+    [`${prefix}_tzone`]: resolveUtcOffset(profile.birth_timezone, profile.date_of_birth, profile.time_of_birth),
   };
 }
 

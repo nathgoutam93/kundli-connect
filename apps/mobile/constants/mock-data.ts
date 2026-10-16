@@ -204,7 +204,7 @@ export const DEFAULT_PROFILE: UserProfile = {
   birthPlace: '',
   birthLatitude: '',
   birthLongitude: '',
-  birthTimezone: '5.5',
+  birthTimezone: '',
   kundliStatus: 'pending',
 };
 
