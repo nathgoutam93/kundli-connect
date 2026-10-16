@@ -1,16 +1,19 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Screen } from '@/components/ui/screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { toast } from '@/components/ui/toast';
 import { colors, fontFamily, gutter, palette, radius, space } from '@/constants/theme';
 import { type CreditPack, type SubscriptionPlan } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { AnimatedPressable } from '@/lib/motion';
 import { formatAmount, type PurchaseOutcome } from '@/services/checkout';
 
 export default function SubscriptionsScreen() {
@@ -33,9 +36,9 @@ export default function SubscriptionsScreen() {
     try {
       const outcome = await purchase();
       if (outcome.status === 'paid') {
-        Alert.alert('Payment successful', 'Your purchase has been added to your account.');
+        toast.success('Your purchase has been added to your account.', 'Payment successful');
       } else if (outcome.status === 'pending') {
-        Alert.alert('Payment processing', 'We will add your purchase as soon as the payment is confirmed.');
+        toast.info('We will add your purchase as soon as the payment is confirmed.', 'Payment processing');
       } else if (outcome.status === 'failed') {
         Alert.alert('Payment failed', outcome.reason);
       }
@@ -50,6 +53,7 @@ export default function SubscriptionsScreen() {
     setBusyProductId('restore');
     try {
       await restorePurchases();
+      toast.info('Your credits and plan are up to date.', 'Purchases restored');
     } finally {
       setBusyProductId(null);
     }
@@ -162,14 +166,21 @@ function CreditPackTile({
   disabled: boolean;
   onPress: () => void;
 }) {
+  const { animatedStyle, pressHandlers } = usePressAnimation({
+    pressedScale: 0.95,
+    backgroundColor: colors.surface,
+    pressedBackgroundColor: colors.surfaceRaised,
+    onPress,
+  });
+
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={`Buy ${pack.name} for ${formatAmount(pack.priceMinor, pack.currency)}`}
       accessibilityState={{ disabled, busy: isLoading }}
       disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.pack, pressed && styles.packPressed, disabled && !isLoading && styles.packDisabled]}>
+      style={[styles.pack, isLoading && styles.packPressed, disabled && !isLoading && styles.packDisabled, animatedStyle]}
+      {...pressHandlers}>
       <View style={styles.packCredits}>
         <Ionicons name="flash" size={14} color={colors.accent} />
         <AppText style={styles.packValue}>{pack.credits}</AppText>
@@ -182,7 +193,7 @@ function CreditPackTile({
           {isLoading ? '…' : formatAmount(pack.priceMinor, pack.currency)}
         </AppText>
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

@@ -1,8 +1,10 @@
-import { forwardRef, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useState, type ReactNode } from 'react';
 import { Platform, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { AppText } from '@/components/ui/app-text';
-import { colors, fontFamily, radius, space } from '@/constants/theme';
+import { colors, fontFamily, palette, radius, space } from '@/constants/theme';
+import { durations, easings } from '@/lib/motion';
 
 type TextFieldProps = TextInputProps & {
   label?: string;
@@ -19,6 +21,21 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   ref
 ) {
   const [isFocused, setIsFocused] = useState(false);
+  const focus = useSharedValue(0);
+
+  useEffect(() => {
+    focus.value = withTiming(isFocused ? 1 : 0, { duration: durations.base, easing: easings.out });
+  }, [focus, isFocused]);
+
+  // The border warms to gold on focus, with a soft glow where the platform supports shadows.
+  const focusStyle = useAnimatedStyle(() =>
+    error
+      ? { borderColor: colors.danger }
+      : {
+          borderColor: interpolateColor(focus.value, [0, 1], [colors.border, colors.accent]),
+          shadowOpacity: focus.value * 0.35,
+        }
+  );
 
   return (
     <View style={[styles.container, containerStyle]}>
@@ -27,13 +44,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           {label}
         </AppText>
       ) : null}
-      <View
-        style={[
-          styles.field,
-          multiline && styles.fieldMultiline,
-          isFocused && styles.fieldFocused,
-          error ? styles.fieldError : null,
-        ]}>
+      <Animated.View style={[styles.field, multiline && styles.fieldMultiline, focusStyle]}>
         {leading}
         <TextInput
           ref={ref}
@@ -53,7 +64,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           {...rest}
         />
         {trailing}
-      </View>
+      </Animated.View>
       {error ? (
         <AppText variant="footnote" color={colors.danger}>
           {error}
@@ -81,16 +92,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surfaceSunken,
+    shadowColor: palette.gold500,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 10,
+    shadowOpacity: 0,
   },
   fieldMultiline: {
     alignItems: 'flex-start',
     paddingVertical: space.sm,
-  },
-  fieldFocused: {
-    borderColor: colors.accent,
-  },
-  fieldError: {
-    borderColor: colors.danger,
   },
   input: {
     flex: 1,

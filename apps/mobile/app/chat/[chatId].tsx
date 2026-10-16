@@ -1,6 +1,7 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
@@ -17,6 +18,9 @@ import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { type ChatPreview, type CompatibilityResult, type DiscoverProfile, type LikeItem } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 import { useChatMessagesInfiniteQuery } from '@/hooks/use-domain-data';
+import { isPendingMessage } from '@/lib/chat-cache';
+import { haptics } from '@/lib/haptics';
+import { springs } from '@/lib/motion';
 
 type ActiveTab = 'chat' | 'score' | 'profile';
 
@@ -210,6 +214,7 @@ export default function ChatThreadScreen() {
         } catch (error) {
             // The optimistic bubble is rolled back; give the text back so nothing is lost.
             setDraft((current) => current || text);
+            haptics.error();
             Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
         }
     }
@@ -252,6 +257,7 @@ export default function ChatThreadScreen() {
 
                 {activeTab === 'chat' ? (
                     <ChatTab
+                        isLoaded={Boolean(messagesQuery.data)}
                         isLoadingEarlier={messagesQuery.isFetchingNextPage}
                         thread={thread}
                         hasMoreMessages={Boolean(messagesQuery.hasNextPage)}
@@ -275,15 +281,7 @@ export default function ChatThreadScreen() {
                             multiline
                             style={styles.composer}
                         />
-                        <IconButton
-                            icon="arrow-up"
-                            accessibilityLabel="Send message"
-                            variant="accent"
-                            size={44}
-                            iconSize={22}
-                            disabled={!draft.trim()}
-                            onPress={handleSend}
-                        />
+                        <SendButton canSend={Boolean(draft.trim())} onSend={handleSend} />
                     </View>
                 ) : null}
             </KeyboardAvoidingView>
@@ -312,22 +310,89 @@ export default function ChatThreadScreen() {
     );
 }
 
+/** Send button that springs up to full size once there is something to send. */
+function SendButton({ canSend, onSend }: { canSend: boolean; onSend: () => void }) {
+    const ready = useSharedValue(canSend ? 1 : 0);
+
+    useEffect(() => {
+        ready.value = withSpring(canSend ? 1 : 0, canSend ? springs.pop : springs.settle);
+    }, [canSend, ready]);
+
+    const style = useAnimatedStyle(() => ({
+        transform: [{ scale: 0.82 + 0.18 * ready.value }, { rotate: `${(1 - ready.value) * -45}deg` }],
+    }));
+
+    return (
+        <Animated.View style={style}>
+            <IconButton
+                icon="arrow-up"
+                accessibilityLabel="Send message"
+                variant="accent"
+                size={44}
+                iconSize={22}
+                haptic="press"
+                disabled={!canSend}
+                onPress={onSend}
+            />
+        </Animated.View>
+    );
+}
+
 function ChatTab({
     hasMoreMessages,
+    isLoaded,
     isLoadingEarlier,
     onLoadEarlier,
     thread,
 }: {
     hasMoreMessages: boolean;
+    isLoaded: boolean;
     isLoadingEarlier: boolean;
     onLoadEarlier: () => Promise<void>;
     thread: ChatThread;
 }) {
+    const scrollRef = useRef<ScrollView>(null);
+    const lastMessageId = thread.messages[thread.messages.length - 1]?.id;
+    const scrolledToId = useRef<string | undefined>(undefined);
+    // Only messages that arrive after the thread has loaded animate in: not the initial page,
+    // and not older pages prepended by "Earlier messages".
+    const seenIds = useRef(new Set<string>());
+    const isSettled = useRef(false);
+    let lastSeenIndex = -1;
+    thread.messages.forEach((message, index) => {
+        if (seenIds.current.has(message.id)) {
+            lastSeenIndex = index;
+        }
+    });
+
+    useEffect(() => {
+        thread.messages.forEach((message) => seenIds.current.add(message.id));
+        if (isLoaded) {
+            isSettled.current = true;
+        }
+    });
+
+    function shouldAnimate(message: ChatThread['messages'][number], index: number) {
+        if (!isSettled.current || index <= lastSeenIndex || seenIds.current.has(message.id)) {
+            return false;
+        }
+        // A sent message swaps its temporary id for the saved one; it already animated as pending.
+        return message.senderId !== 'me' || isPendingMessage(message);
+    }
+
     return (
         <ScrollView
+            ref={scrollRef}
             contentContainerStyle={styles.messages}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled">
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => {
+                // Follow new messages to the bottom, but don't jump when older pages load above.
+                if (lastMessageId && lastMessageId !== scrolledToId.current) {
+                    scrollRef.current?.scrollToEnd({ animated: scrolledToId.current !== undefined });
+                    scrolledToId.current = lastMessageId;
+                }
+            }}>
             {hasMoreMessages ? (
                 <Button
                     label={isLoadingEarlier ? 'Loading' : 'Earlier messages'}
@@ -340,11 +405,14 @@ function ChatTab({
                 />
             ) : null}
             {thread.messages.length > 0 ? (
-                thread.messages.map((message) => {
+                thread.messages.map((message, index) => {
                     const isMine = message.senderId === 'me';
 
                     return (
-                        <View key={message.id} style={[styles.messageRow, isMine && styles.messageRowMine]}>
+                        <Animated.View
+                            key={message.id}
+                            entering={shouldAnimate(message, index) ? FadeInDown.springify().damping(18).stiffness(220) : undefined}
+                            style={[styles.messageRow, isMine && styles.messageRowMine]}>
                             {!isMine ? <Avatar uri={thread.avatarUrl} name={thread.name} size={28} /> : null}
                             <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
                                 <AppText variant="callout" color={isMine ? colors.onAccent : colors.text}>
@@ -356,7 +424,7 @@ function ChatTab({
                                     </AppText>
                                 ) : null}
                             </View>
-                        </View>
+                        </Animated.View>
                     );
                 })
             ) : (

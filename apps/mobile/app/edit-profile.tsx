@@ -26,6 +26,7 @@ import { ChoiceChip } from '@/components/ui/choice';
 import { Screen } from '@/components/ui/screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { TextField as UiTextField } from '@/components/ui/text-field';
+import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { type UserProfile } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
@@ -184,7 +185,7 @@ export default function EditProfileScreen() {
 
     async function addPhoto() {
         if (form.photoUris.length >= MAX_PHOTOS) {
-            Alert.alert('Photo limit reached', `You can add up to ${MAX_PHOTOS} photos.`);
+            toast.warning(`You can add up to ${MAX_PHOTOS} photos.`, 'Photo limit reached');
             return;
         }
 
@@ -348,7 +349,7 @@ export default function EditProfileScreen() {
         }
 
         if (form.photoUris.length < MIN_PHOTOS) {
-            Alert.alert('Add more photos', `Please keep at least ${MIN_PHOTOS} profile photos.`);
+            toast.warning(`Please keep at least ${MIN_PHOTOS} profile photos.`, 'Add more photos');
             return;
         }
 

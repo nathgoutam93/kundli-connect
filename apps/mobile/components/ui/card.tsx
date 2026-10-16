@@ -1,7 +1,9 @@
 import { type ReactNode } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, radius, space } from '@/constants/theme';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { AnimatedPressable } from '@/lib/motion';
 
 type CardProps = {
   children: ReactNode;
@@ -17,17 +19,50 @@ export function Card({ children, tone = 'default', padded = true, onPress, acces
 
   if (onPress) {
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel}
+      <PressableCard
         onPress={onPress}
-        style={({ pressed }) => [styles.base, toneStyle, padded && styles.padded, pressed && styles.pressed, style]}>
+        accessibilityLabel={accessibilityLabel}
+        style={[styles.base, toneStyle, padded && styles.padded, style]}
+        background={tone === 'raised' ? colors.surfaceRaised : colors.surface}>
         {children}
-      </Pressable>
+      </PressableCard>
     );
   }
 
   return <View style={[styles.base, toneStyle, padded && styles.padded, style]}>{children}</View>;
+}
+
+function PressableCard({
+  children,
+  onPress,
+  accessibilityLabel,
+  style,
+  background,
+}: {
+  children: ReactNode;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  style: StyleProp<ViewStyle>;
+  background: string;
+}) {
+  // Cards are navigation, so they get the press spring but no haptic (buttons and toggles do).
+  const { animatedStyle, pressHandlers } = usePressAnimation({
+    pressedScale: 0.985,
+    backgroundColor: background,
+    pressedBackgroundColor: background === colors.surfaceRaised ? colors.surface : colors.surfaceRaised,
+    haptic: false,
+    onPress,
+  });
+
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={[style, animatedStyle]}
+      {...pressHandlers}>
+      {children}
+    </AnimatedPressable>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -47,8 +82,5 @@ const styles = StyleSheet.create({
   },
   padded: {
     padding: space.lg,
-  },
-  pressed: {
-    backgroundColor: colors.surfaceRaised,
   },
 });

@@ -1,11 +1,30 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { type ComponentProps } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { type ComponentProps, useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, {
+  type SharedValue,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { AppText } from '@/components/ui/app-text';
-import { colors, radius, space } from '@/constants/theme';
+import { colors, radius, space, type } from '@/constants/theme';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { AnimatedPressable, durations, easings, springs } from '@/lib/motion';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
+
+/** 0 → 1 as an option becomes selected; starts at the current value so nothing animates on mount. */
+function useSelection(selected: boolean) {
+  const progress = useSharedValue(selected ? 1 : 0);
+  useEffect(() => {
+    progress.value = withTiming(selected ? 1 : 0, { duration: durations.fast, easing: easings.out });
+  }, [progress, selected]);
+  return progress;
+}
 
 type ChoiceRowProps = {
   label: string;
@@ -19,15 +38,21 @@ type ChoiceRowProps = {
 
 /** Full-width selectable option used in onboarding and settings lists. */
 export function ChoiceRow({ label, description, icon, selected, onPress, indicator = 'radio' }: ChoiceRowProps) {
+  const progress = useSelection(selected);
+  const { animatedStyle, pressHandlers } = usePressAnimation({ pressedScale: 0.98, haptic: 'select', onPress });
+
+  const rowStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(progress.value, [0, 1], [colors.border, colors.accent]),
+    backgroundColor: interpolateColor(progress.value, [0, 1], [colors.surface, colors.surfaceRaised]),
+  }));
+
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole={indicator === 'check' ? 'checkbox' : 'radio'}
       accessibilityState={{ checked: selected, selected }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.row, selected && styles.rowSelected, pressed && styles.rowPressed]}>
-      {icon ? (
-        <Ionicons name={icon} size={20} color={selected ? colors.accent : colors.textMuted} />
-      ) : null}
+      style={[styles.row, rowStyle, animatedStyle]}
+      {...pressHandlers}>
+      {icon ? <Ionicons name={icon} size={20} color={selected ? colors.accent : colors.textMuted} /> : null}
       <View style={styles.rowText}>
         <AppText variant="bodyStrong">{label}</AppText>
         {description ? (
@@ -36,20 +61,47 @@ export function ChoiceRow({ label, description, icon, selected, onPress, indicat
           </AppText>
         ) : null}
       </View>
-      <View
-        style={[
-          indicator === 'check' ? styles.check : styles.radio,
-          selected && (indicator === 'check' ? styles.checkOn : styles.radioOn),
-        ]}>
-        {selected ? (
-          indicator === 'check' ? (
-            <Ionicons name="checkmark" size={14} color={colors.onAccent} />
-          ) : (
-            <View style={styles.radioDot} />
-          )
-        ) : null}
-      </View>
-    </Pressable>
+      {indicator === 'check' ? <CheckIndicator progress={progress} selected={selected} /> : <RadioIndicator progress={progress} selected={selected} />}
+    </AnimatedPressable>
+  );
+}
+
+function RadioIndicator({ progress, selected }: { progress: SharedValue<number>; selected: boolean }) {
+  const dotScale = useSharedValue(selected ? 1 : 0);
+  useEffect(() => {
+    dotScale.value = selected ? withSpring(1, springs.pop) : withTiming(0, { duration: durations.fast });
+  }, [dotScale, selected]);
+
+  const ringStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(progress.value, [0, 1], [colors.borderStrong, colors.accent]),
+  }));
+  const dotStyle = useAnimatedStyle(() => ({ transform: [{ scale: dotScale.value }] }));
+
+  return (
+    <Animated.View style={[styles.radio, ringStyle]}>
+      <Animated.View style={[styles.radioDot, dotStyle]} />
+    </Animated.View>
+  );
+}
+
+function CheckIndicator({ progress, selected }: { progress: SharedValue<number>; selected: boolean }) {
+  const checkScale = useSharedValue(selected ? 1 : 0);
+  useEffect(() => {
+    checkScale.value = selected ? withSpring(1, springs.pop) : withTiming(0, { duration: durations.fast });
+  }, [checkScale, selected]);
+
+  const boxStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(progress.value, [0, 1], [colors.borderStrong, colors.accent]),
+    backgroundColor: interpolateColor(progress.value, [0, 1], ['rgba(233, 185, 73, 0)', colors.accent]),
+  }));
+  const checkStyle = useAnimatedStyle(() => ({ transform: [{ scale: checkScale.value }] }));
+
+  return (
+    <Animated.View style={[styles.check, boxStyle]}>
+      <Animated.View style={checkStyle}>
+        <Ionicons name="checkmark" size={14} color={colors.onAccent} />
+      </Animated.View>
+    </Animated.View>
   );
 }
 
@@ -62,17 +114,26 @@ type ChoiceChipProps = {
 
 /** Compact pill option for dense multi-select groups. */
 export function ChoiceChip({ label, selected, onPress, icon }: ChoiceChipProps) {
+  const progress = useSelection(selected);
+  const { animatedStyle, pressHandlers } = usePressAnimation({ pressedScale: 0.94, haptic: 'select', onPress });
+
+  const chipStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(progress.value, [0, 1], [colors.border, colors.accent]),
+    backgroundColor: interpolateColor(progress.value, [0, 1], [colors.surface, colors.accent]),
+  }));
+  const labelStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(progress.value, [0, 1], [colors.text, colors.onAccent]),
+  }));
+
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && styles.rowPressed]}>
+      style={[styles.chip, chipStyle, animatedStyle]}
+      {...pressHandlers}>
       {icon ? <Ionicons name={icon} size={15} color={selected ? colors.onAccent : colors.textMuted} /> : null}
-      <AppText variant="subhead" color={selected ? colors.onAccent : colors.text}>
-        {label}
-      </AppText>
-    </Pressable>
+      <Animated.Text style={[type.subhead, labelStyle]}>{label}</Animated.Text>
+    </AnimatedPressable>
   );
 }
 
@@ -89,13 +150,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  rowSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.surfaceRaised,
-  },
-  rowPressed: {
-    opacity: 0.85,
-  },
   rowText: {
     flex: 1,
     gap: 2,
@@ -108,9 +162,6 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  radioOn: {
-    borderColor: colors.accent,
   },
   radioDot: {
     width: 10,
@@ -127,10 +178,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkOn: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accent,
-  },
   chip: {
     minHeight: 38,
     flexDirection: 'row',
@@ -141,9 +188,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-  },
-  chipSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accent,
   },
 });

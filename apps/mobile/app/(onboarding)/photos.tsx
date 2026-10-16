@@ -7,6 +7,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, useWindowDimensions, V
 
 import { OnboardingStep } from '@/components/onboarding-step';
 import { AppText } from '@/components/ui/app-text';
+import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
@@ -34,7 +35,7 @@ export default function PhotosScreen() {
     const remainingSlots = MAX_PHOTOS - selectedPhotoUris.length;
 
     if (remainingSlots <= 0) {
-      Alert.alert('Photo limit reached', `You can add up to ${MAX_PHOTOS} photos.`);
+      toast.warning(`You can add up to ${MAX_PHOTOS} photos.`, 'Photo limit reached');
       return;
     }
 
@@ -90,7 +91,7 @@ export default function PhotosScreen() {
 
   async function handleContinue() {
     if (!canContinue) {
-      Alert.alert('Add more photos', `Please add at least ${MIN_PHOTOS} photos to continue.`);
+      toast.warning(`Please add at least ${MIN_PHOTOS} photos to continue.`, 'Add more photos');
       return;
     }
 

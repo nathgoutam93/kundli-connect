@@ -2,12 +2,21 @@ import { Platform, StyleSheet, Switch, View, type SwitchProps } from 'react-nati
 
 import { AppText } from '@/components/ui/app-text';
 import { colors, space } from '@/constants/theme';
+import { haptics } from '@/lib/haptics';
 
-/** Platform switch with brand colors. */
-export function AppSwitch({ value, ...rest }: SwitchProps) {
+/** Platform switch with brand colors and a selection tick when toggled. */
+export function AppSwitch({ value, onValueChange, ...rest }: SwitchProps) {
   return (
     <Switch
       value={value}
+      onValueChange={
+        onValueChange
+          ? (next) => {
+              haptics.select();
+              onValueChange(next);
+            }
+          : undefined
+      }
       trackColor={{ false: colors.border, true: colors.accent }}
       thumbColor={value ? colors.text : colors.textMuted}
       ios_backgroundColor={colors.border}

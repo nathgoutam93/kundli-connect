@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, type Href } from 'expo-router';
 import { type ComponentProps } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { ProfileView } from '@/components/profile-view';
 import { AppText } from '@/components/ui/app-text';
@@ -13,6 +13,8 @@ import { Screen } from '@/components/ui/screen';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { type UserProfile } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { AnimatedPressable } from '@/lib/motion';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -104,12 +106,20 @@ function QuickTile({
     href: Href;
     highlight?: boolean;
 }) {
+    const { animatedStyle, pressHandlers } = usePressAnimation({
+        pressedScale: 0.98,
+        backgroundColor: colors.surface,
+        pressedBackgroundColor: colors.surfaceRaised,
+        haptic: false,
+        onPress: () => router.push(href),
+    });
+
     return (
-        <Pressable
+        <AnimatedPressable
             accessibilityRole="button"
             accessibilityLabel={`${title}. ${caption}`}
-            onPress={() => router.push(href)}
-            style={({ pressed }) => [styles.tile, highlight && styles.tileHighlight, pressed && styles.tilePressed]}>
+            style={[styles.tile, highlight && styles.tileHighlight, animatedStyle]}
+            {...pressHandlers}>
             <View style={[styles.tileIcon, highlight && styles.tileIconHighlight]}>
                 <Ionicons name={icon} size={20} color={highlight ? colors.onAccent : colors.accent} />
             </View>
@@ -120,7 +130,7 @@ function QuickTile({
                 </AppText>
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
-        </Pressable>
+        </AnimatedPressable>
     );
 }
 
@@ -187,9 +197,6 @@ const styles = StyleSheet.create({
     },
     tileHighlight: {
         borderColor: colors.accentLine,
-    },
-    tilePressed: {
-        backgroundColor: colors.surfaceRaised,
     },
     tileIcon: {
         width: 40,

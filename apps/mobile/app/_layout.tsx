@@ -18,8 +18,11 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+import { ToastHost } from '@/components/ui/toast';
 import { colors, navigationTheme, stackHeaderOptions } from '@/constants/theme';
 import { configureReactNativeQueryListeners, queryClient } from '@/lib/query-client';
 import { AuthProvider } from '@/providers/auth-provider';
@@ -61,25 +64,35 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ThemeProvider value={navigationTheme}>
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="(auth)" />
-            <Stack.Screen name="(onboarding)" />
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="match" options={{ presentation: 'modal' }} />
-            <Stack.Screen name="chat/[chatId]" options={{ ...stackHeaderOptions, headerShown: true, title: 'Chat' }} />
-            <Stack.Screen name="settings" />
-            <Stack.Screen name="edit-profile" />
-            <Stack.Screen name="kundli" />
-            <Stack.Screen name="subscriptions" />
-            <Stack.Screen name="auth/callback" />
-          </Stack>
-          <StatusBar style="light" />
-        </ThemeProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ThemeProvider value={navigationTheme}>
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="(auth)" />
+              <Stack.Screen name="(onboarding)" />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="match" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+              <Stack.Screen name="chat/[chatId]" options={{ ...stackHeaderOptions, headerShown: true, title: 'Chat' }} />
+              <Stack.Screen name="settings" />
+              <Stack.Screen name="edit-profile" />
+              <Stack.Screen name="kundli" />
+              <Stack.Screen name="subscriptions" />
+              <Stack.Screen name="auth/callback" />
+            </Stack>
+            <StatusBar style="light" />
+            <ToastHost />
+          </ThemeProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+});

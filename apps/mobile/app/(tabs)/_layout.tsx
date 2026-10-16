@@ -3,10 +3,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Notifications from 'expo-notifications';
 import { Redirect, Tabs } from 'expo-router';
 import { type ComponentProps, useEffect, useRef } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
+import { CelestialTabBar } from '@/components/tab-bar';
 import { FullScreenLoader } from '@/components/ui/loader';
-import { colors, fontFamily, radius } from '@/constants/theme';
+import { colors } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 import { useRealtimeSync } from '@/hooks/use-realtime-sync';
 import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
@@ -14,16 +15,17 @@ import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 function TabIcon({ name, focused, color }: { name: IconName; focused: boolean; color: string }) {
-  return (
-    <View style={styles.iconWrap}>
-      <View style={[styles.indicator, focused && styles.indicatorActive]} />
-      <Ionicons name={focused ? name : (`${name}-outline` as IconName)} size={22} color={color} />
-    </View>
-  );
+  return <Ionicons name={focused ? name : (`${name}-outline` as IconName)} size={22} color={color} />;
+}
+
+function badgeValue(count: number) {
+  return count > 0 ? (count > 9 ? '9+' : count) : undefined;
 }
 
 export default function MainTabsLayout() {
-  const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile } = useAppData();
+  const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile, likes, chats } = useAppData();
+  const unreadLikes = likes.filter((like) => !like.readAt).length;
+  const unreadMessages = chats.reduce((total, chat) => total + (chat.hidden ? 0 : chat.unreadCount), 0);
   const hasCheckedNotificationPromptRef = useRef(false);
   useRealtimeSync();
 
@@ -91,12 +93,9 @@ export default function MainTabsLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <CelestialTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textFaint,
-        tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabLabel,
         sceneStyle: { backgroundColor: colors.background },
       }}>
       <Tabs.Screen
@@ -110,6 +109,7 @@ export default function MainTabsLayout() {
         name="likes"
         options={{
           title: 'Likes',
+          tabBarBadge: badgeValue(unreadLikes),
           tabBarIcon: ({ color, focused }) => <TabIcon name="heart" focused={focused} color={color} />,
         }}
       />
@@ -117,6 +117,7 @@ export default function MainTabsLayout() {
         name="chats"
         options={{
           title: 'Chats',
+          tabBarBadge: badgeValue(unreadMessages),
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name="chatbubble-ellipses" focused={focused} color={color} />
           ),
@@ -138,31 +139,3 @@ export default function MainTabsLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: colors.backgroundDeep,
-    borderTopColor: colors.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  tabLabel: {
-    fontFamily: fontFamily.bodyMedium,
-    fontSize: 11,
-    letterSpacing: 0.2,
-  },
-  iconWrap: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  indicator: {
-    width: 4,
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.transparent,
-    position: 'absolute',
-    top: -7,
-  },
-  indicatorActive: {
-    backgroundColor: colors.accent,
-  },
-});

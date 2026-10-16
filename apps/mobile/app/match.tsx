@@ -1,5 +1,19 @@
-import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/ui/app-text';
@@ -7,14 +21,74 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { CelestialBackground } from '@/components/ui/celestial-background';
 import { IconButton } from '@/components/ui/icon-button';
-import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
+import { SparkleBurst } from '@/components/ui/sparkle-burst';
+import { colors, fontFamily, gutter, palette, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { haptics } from '@/lib/haptics';
 
 const ICEBREAKERS = ['Ask about their ideal Sunday', 'Compare moon signs', 'Plan a first coffee'];
+const ORBIT_SIZE = 240;
+/** When the two avatars meet in the middle and the sparkles fire. */
+const MEET_DELAY = 380;
+
+type MatchParams = { chatId?: string; name?: string; avatarUrl?: string; score?: string };
 
 export default function MatchScreen() {
-  const chat = useAppData((state) => state.chats.find((item) => !item.hidden) ?? state.chats[0]);
+  const params = useLocalSearchParams<MatchParams>();
+  const { width } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
   const viewer = useAppData((state) => state.profile);
+  const chats = useAppData((state) => state.chats);
+  const chat = params.chatId
+    ? chats.find((item) => item.id === params.chatId)
+    : (chats.find((item) => !item.hidden) ?? chats[0]);
+
+  // Params come from the like that was just replied to, so the screen works before chats refetch.
+  const chatId = params.chatId ?? chat?.id;
+  const partnerName = params.name ?? chat?.name;
+  const partnerAvatar = params.avatarUrl ?? chat?.avatarUrl;
+  const score = params.score ? Number(params.score) : chat?.compatibilityScore;
+  const hasPartner = Boolean(chatId && partnerName);
+
+  const arrival = useSharedValue(0);
+  const orbit = useSharedValue(0);
+  const spin = useSharedValue(0);
+  const [burst, setBurst] = useState(0);
+
+  useEffect(() => {
+    arrival.value = withSpring(1, { damping: 14, stiffness: 120, mass: 1 });
+    orbit.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
+    if (!reduceMotion) {
+      spin.value = withRepeat(withTiming(360, { duration: 14000, easing: Easing.linear }), -1, false);
+    }
+    const timeout = setTimeout(() => {
+      setBurst(1);
+      haptics.success();
+    }, MEET_DELAY);
+    return () => {
+      clearTimeout(timeout);
+      cancelAnimation(spin);
+    };
+  }, [arrival, orbit, reduceMotion, spin]);
+
+  const leftStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(arrival.value * 1.5, 1),
+    transform: [
+      { translateX: (1 - arrival.value) * -width * 0.6 },
+      { rotate: `${-6 - (1 - arrival.value) * 24}deg` },
+    ],
+  }));
+  const rightStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(arrival.value * 1.5, 1),
+    transform: [
+      { translateX: (1 - arrival.value) * width * 0.6 },
+      { rotate: `${6 + (1 - arrival.value) * 24}deg` },
+    ],
+  }));
+  const orbitStyle = useAnimatedStyle(() => ({
+    opacity: orbit.value,
+    transform: [{ scale: 0.6 + 0.4 * orbit.value }, { rotate: `${spin.value}deg` }],
+  }));
 
   return (
     <View style={styles.screen}>
@@ -31,50 +105,68 @@ export default function MatchScreen() {
 
         <View style={styles.center}>
           <View style={styles.copy}>
-            {chat ? (
-              <AppText variant="overline" color={colors.accent} align="center">
-                ✦ {chat.compatibilityScore}% Kundli match ✦
-              </AppText>
+            {hasPartner && score ? (
+              <Animated.View entering={FadeIn.delay(MEET_DELAY).duration(500)}>
+                <AppText variant="overline" color={colors.accent} align="center">
+                  ✦ {score}% Kundli match ✦
+                </AppText>
+              </Animated.View>
             ) : null}
-            <AppText align="center" style={styles.title}>
-              It’s{' '}
-              <AppText color={colors.accent} style={styles.titleAccent}>
-                written
+            <Animated.View entering={FadeInDown.delay(MEET_DELAY + 80).duration(550)}>
+              <AppText align="center" style={styles.title}>
+                It’s{' '}
+                <AppText color={colors.accent} style={styles.titleAccent}>
+                  written
+                </AppText>
               </AppText>
-            </AppText>
-            {chat ? (
-              <AppText variant="callout" color={colors.textMuted} align="center">
-                You and {chat.name} liked each other. The rest of the story is yours to write.
-              </AppText>
+            </Animated.View>
+            {hasPartner ? (
+              <Animated.View entering={FadeInDown.delay(MEET_DELAY + 200).duration(550)}>
+                <AppText variant="callout" color={colors.textMuted} align="center">
+                  You and {partnerName} liked each other. The rest of the story is yours to write.
+                </AppText>
+              </Animated.View>
             ) : null}
           </View>
 
-          {chat ? (
+          {hasPartner ? (
             <View style={styles.orbs}>
-              <View style={styles.orbit} />
-              <Avatar uri={viewer.photoUris[0]} name={viewer.name} size={112} ring={colors.accent} style={styles.orbLeft} />
-              <Avatar uri={chat.avatarUrl} name={chat.name} size={112} ring={colors.like} style={styles.orbRight} />
+              <Animated.View style={[styles.orbit, orbitStyle]}>
+                <View style={styles.planet} />
+              </Animated.View>
+              <SparkleBurst trigger={burst} radius={150} count={14} duration={900} />
+              <Animated.View style={[styles.orbLeft, leftStyle]}>
+                <Avatar uri={viewer.photoUris[0]} name={viewer.name} size={112} ring={colors.accent} />
+              </Animated.View>
+              <Animated.View style={[styles.orbRight, rightStyle]}>
+                <Avatar uri={partnerAvatar} name={partnerName} size={112} ring={colors.like} />
+              </Animated.View>
             </View>
           ) : null}
 
-          {chat ? (
+          {hasPartner ? (
             <View style={styles.icebreakers}>
-              {ICEBREAKERS.map((item) => (
-                <View key={item} style={styles.chip}>
+              {ICEBREAKERS.map((item, index) => (
+                <Animated.View
+                  key={item}
+                  entering={FadeInUp.delay(MEET_DELAY + 320 + index * 90).duration(450)}
+                  style={styles.chip}>
                   <AppText variant="subhead" color={colors.textMuted}>
                     {item}
                   </AppText>
-                </View>
+                </Animated.View>
               ))}
             </View>
           ) : null}
         </View>
 
-        {chat ? (
-          <Button label="Start chatting" icon="chatbubble-ellipses" onPress={() => router.replace(`/chat/${chat.id}`)} />
-        ) : (
-          <Button label="Open chats" onPress={() => router.replace('/(tabs)/chats')} />
-        )}
+        <Animated.View entering={FadeInUp.delay(MEET_DELAY + 500).duration(450)}>
+          {hasPartner ? (
+            <Button label="Start chatting" icon="chatbubble-ellipses" onPress={() => router.replace(`/chat/${chatId}`)} />
+          ) : (
+            <Button label="Open chats" onPress={() => router.replace('/(tabs)/chats')} />
+          )}
+        </Animated.View>
       </SafeAreaView>
     </View>
   );
@@ -122,19 +214,30 @@ const styles = StyleSheet.create({
   },
   orbit: {
     position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
+    width: ORBIT_SIZE,
+    height: ORBIT_SIZE,
+    borderRadius: ORBIT_SIZE / 2,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  planet: {
+    position: 'absolute',
+    top: -4,
+    left: ORBIT_SIZE / 2 - 4,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: palette.gold300,
+    shadowColor: palette.gold500,
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
   orbLeft: {
     marginRight: -18,
-    transform: [{ rotate: '-6deg' }],
   },
   orbRight: {
     marginLeft: -18,
-    transform: [{ rotate: '6deg' }],
   },
   icebreakers: {
     flexDirection: 'row',

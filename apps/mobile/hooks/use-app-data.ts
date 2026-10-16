@@ -58,6 +58,9 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     hasCompletedOnboarding: Boolean(profileQuery.data?._onboardingCompleted),
     isServiceBusy,
     serviceError,
+    isLoadingDiscover: discoverQuery.isPending,
+    isLoadingLikes: likesQuery.isPending,
+    isLoadingChats: chatsQuery.isPending,
     profile,
     discoverProfiles: discoverQuery.data ?? [],
     skippedProfileIds: [],
@@ -147,6 +150,10 @@ export type AppData = {
   isAuthenticated: boolean;
   hasCompletedOnboarding: boolean;
   isServiceBusy: boolean;
+  /** First load of a list is still in flight (no cached data yet); used for skeletons. */
+  isLoadingDiscover: boolean;
+  isLoadingLikes: boolean;
+  isLoadingChats: boolean;
   serviceError?: string;
   profile: UserProfile;
   discoverProfiles: ReturnType<typeof useDiscoverProfilesQuery>['data'] extends infer D ? NonNullable<D> : never;
