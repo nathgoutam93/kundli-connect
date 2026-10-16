@@ -10,7 +10,7 @@ import Animated, {
 import Svg, { Line, Polygon, Rect } from 'react-native-svg';
 
 import { AppText } from '@/components/ui/app-text';
-import { colors, fontFamily, palette, radius } from '@/constants/theme';
+import { colors, fontFamily, palette } from '@/constants/theme';
 import { easings } from '@/lib/motion';
 import { type ChartHouse } from '@/services/supabase-auth-service';
 
@@ -74,7 +74,7 @@ export function KundliChart({ houses, caption }: KundliChartProps) {
           : null}
       </View>
       {caption ? (
-        <AppText variant="overline" color={colors.textFaint} align="center">
+        <AppText variant="footnote" color={colors.textFaint} align="center">
           {caption}
         </AppText>
       ) : null}
@@ -110,7 +110,8 @@ function ChartLines({ size }: { size: number }) {
     <Svg width={s} height={s} style={StyleSheet.absoluteFill}>
       {/* The ascendant's house gets a faint gold wash. */}
       <Polygon points={`${s / 4},${s / 4} ${s / 2},0 ${(3 * s) / 4},${s / 4} ${s / 2},${s / 2}`} fill={colors.accentSoft} />
-      <Rect x={0.5} y={0.5} width={s - 1} height={s - 1} rx={radius.md} stroke={colors.accentLine} strokeWidth={1} fill="none" />
+      {/* Square corners: the diagonals run into them, so rounding would leave them poking out. */}
+      <Rect x={0.5} y={0.5} width={s - 1} height={s - 1} stroke={colors.accentLine} strokeWidth={1} fill="none" />
       {diagonals.map(([x1, y1, x2, y2], index) => (
         <AnimatedLine
           key={`d${index}`}
@@ -202,7 +203,6 @@ const styles = StyleSheet.create({
   square: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: radius.md,
     backgroundColor: colors.surface,
   },
   sign: {

@@ -650,7 +650,7 @@ function LockedBirthDetails({ profile }: { profile: UserProfile }) {
                     <AppText variant="subhead" color={colors.textMuted} style={styles.lockedLabel}>
                         {row.label}
                     </AppText>
-                    <AppText variant="bodyStrong" style={styles.lockedValue} numberOfLines={1}>
+                    <AppText variant="bodyStrong" style={styles.lockedValue} numberOfLines={2}>
                         {row.value}
                     </AppText>
                 </View>

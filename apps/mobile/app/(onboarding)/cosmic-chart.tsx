@@ -197,7 +197,7 @@ export function KundliChartContent() {
                     <KundliChart
                         key={activeChart}
                         houses={chartHouses[activeChart]}
-                        caption={`${CHARTS[activeChart as keyof typeof CHARTS] ?? activeChart} (${activeChart}) · numbers are signs, Asc marks your ascendant`}
+                        caption={`${CHARTS[activeChart as keyof typeof CHARTS] ?? activeChart} (${activeChart}). Numbers are signs; Asc marks your ascendant.`}
                     />
                 </View>
             ) : chartImages.length > 0 ? (
