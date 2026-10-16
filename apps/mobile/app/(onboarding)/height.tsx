@@ -1,10 +1,10 @@
-import WheelPicker from '@quidone/react-native-wheel-picker';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { OnboardingStep } from '@/components/onboarding-step';
 import { SegmentedControl } from '@/components/ui/segmented-control';
+import { WheelPicker } from '@/components/ui/wheel-picker';
 import { colors, fontFamily, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 
@@ -68,12 +68,13 @@ export default function HeightScreen() {
             <SegmentedControl options={UNIT_OPTIONS} value={unit} onChange={setUnit} />
             <View style={styles.pickerFrame}>
                 <WheelPicker
+                    key={unit}
                     data={heightOptions}
                     value={selectedValue}
                     itemHeight={ITEM_HEIGHT}
                     visibleItemCount={VISIBLE_ITEMS}
                     enableScrollByTapOnItem
-                    onValueChanged={({ item }) => selectHeight(item.value)}
+                    onValueChanged={selectHeight}
                     width="100%"
                     style={styles.picker}
                     itemTextStyle={styles.heightText}

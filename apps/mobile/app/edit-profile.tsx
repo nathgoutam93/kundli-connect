@@ -7,17 +7,15 @@ import {
     Alert,
     Animated,
     ActivityIndicator,
-    KeyboardAvoidingView,
     PanResponder,
     type PanResponderGestureState,
-    Platform,
     Pressable,
-    ScrollView,
     StyleSheet,
     type StyleProp,
     type ViewStyle,
     View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 import { SwitchRow } from '@/components/ui/app-switch';
 import { AppText } from '@/components/ui/app-text';
@@ -388,7 +386,7 @@ export default function EditProfileScreen() {
 
     return (
         <Screen>
-            <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={styles.keyboard}>
                 <ScreenHeader
                     title="Edit profile"
                     onBack={isServiceBusy ? () => undefined : undefined}
@@ -407,7 +405,9 @@ export default function EditProfileScreen() {
                         ) : null
                     }
                 />
-                <ScrollView
+                {/* Scrolls the focused field (and a growing bio) above the keyboard. */}
+                <KeyboardAwareScrollView
+                    bottomOffset={space.xl}
                     scrollEnabled={!isPhotoDragging}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
@@ -489,8 +489,8 @@ export default function EditProfileScreen() {
                         <OptionGroup label="Smoking" options={HABIT_OPTIONS} selectedValue={form.smoking} onSelect={(value) => updateForm('smoking', value)} />
                         <VisibilitySwitch label="Show smoking" value={form.smokingVisibleOnProfile} onValueChange={(value) => updateForm('smokingVisibleOnProfile', value)} />
                     </Section>
-                </ScrollView>
-            </KeyboardAvoidingView>
+                </KeyboardAwareScrollView>
+            </View>
         </Screen>
     );
 }

@@ -1,16 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
+  TextInput,
   View,
   type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardAvoidingView, KeyboardEvents } from 'react-native-keyboard-controller';
 import Animated, {
   interpolate,
   runOnJS,
@@ -35,6 +36,11 @@ type BottomSheetProps = {
   doneLabel?: string;
   children: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
+  /**
+   * For tall content with text fields: the content scrolls inside the sheet, a focused field is
+   * scrolled into view above the keyboard, and only the handle and header drag the sheet.
+   */
+  scrollable?: boolean;
 };
 
 /** Distance or flick speed past which a downward drag closes the sheet. */
@@ -45,8 +51,21 @@ const DISMISS_VELOCITY = 900;
  * Modal sheet: the backdrop fades in while the sheet springs up from the bottom, and the sheet
  * can be dragged down to dismiss. Stays mounted while its exit animation plays.
  */
-export function BottomSheet({ visible, onClose, title, eyebrow, doneLabel, children, contentStyle }: BottomSheetProps) {
+export function BottomSheet({
+  visible,
+  onClose,
+  title,
+  eyebrow,
+  doneLabel,
+  children,
+  contentStyle,
+  scrollable = false,
+}: BottomSheetProps) {
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollContentRef = useRef<View>(null);
+  const scrollY = useRef(0);
+  const viewportHeight = useRef(0);
   const [isMounted, setIsMounted] = useState(visible);
   const progress = useSharedValue(0);
   const dragY = useSharedValue(0);
@@ -65,6 +84,31 @@ export function BottomSheet({ visible, onClose, title, eyebrow, doneLabel, child
       });
     }
   }, [dragY, progress, visible]);
+
+  // Once the keyboard has settled (and the sheet has shrunk above it), bring the focused field
+  // into view if it's hidden.
+  useEffect(() => {
+    if (!scrollable || !visible) {
+      return;
+    }
+    const subscription = KeyboardEvents.addListener('keyboardDidShow', () => {
+      const input = TextInput.State.currentlyFocusedInput();
+      const content = scrollContentRef.current;
+      if (!input || !content) {
+        return;
+      }
+      input.measureLayout(content, (_x, y, _width, height) => {
+        const top = scrollY.current;
+        const bottom = top + viewportHeight.current;
+        if (y >= top && y + height <= bottom - space.sm) {
+          return;
+        }
+        const target = height > viewportHeight.current ? y : y + height - viewportHeight.current + space.md;
+        scrollRef.current?.scrollTo({ y: Math.max(target, 0), animated: true });
+      });
+    });
+    return () => subscription.remove();
+  }, [scrollable, visible]);
 
   const pan = Gesture.Pan()
     .activeOffsetY(8)
@@ -93,36 +137,70 @@ export function BottomSheet({ visible, onClose, title, eyebrow, doneLabel, child
     sheetHeight.value = event.nativeEvent.layout.height;
   }
 
+  const header = (
+    <>
+      <View style={styles.handle} />
+      {title || doneLabel ? (
+        <View style={styles.header}>
+          <View style={styles.headerText}>
+            {eyebrow ? (
+              <AppText variant="overline" color={colors.accent}>
+                {eyebrow}
+              </AppText>
+            ) : null}
+            {title ? <AppText variant="title3">{title}</AppText> : null}
+          </View>
+          {doneLabel ? (
+            <Button label={doneLabel} variant="secondary" size="sm" fullWidth={false} onPress={onClose} />
+          ) : null}
+        </View>
+      ) : null}
+    </>
+  );
+
   return (
     <Modal transparent animationType="none" visible={isMounted} onRequestClose={onClose} statusBarTranslucent>
       <GestureHandlerRootView style={styles.root}>
-        <KeyboardAvoidingView style={styles.layer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView
+          style={[styles.layer, { paddingTop: insets.top + space.lg }]}
+          behavior="padding">
           <Animated.View style={[styles.scrim, scrimStyle]}>
             <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
           </Animated.View>
-          <GestureDetector gesture={pan}>
+          {scrollable ? (
             <Animated.View
               onLayout={handleLayout}
               style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.md) + space.sm }, contentStyle, sheetStyle]}>
-              <View style={styles.handle} />
-              {title || doneLabel ? (
-                <View style={styles.header}>
-                  <View style={styles.headerText}>
-                    {eyebrow ? (
-                      <AppText variant="overline" color={colors.accent}>
-                        {eyebrow}
-                      </AppText>
-                    ) : null}
-                    {title ? <AppText variant="title3">{title}</AppText> : null}
-                  </View>
-                  {doneLabel ? (
-                    <Button label={doneLabel} variant="secondary" size="sm" fullWidth={false} onPress={onClose} />
-                  ) : null}
+              <GestureDetector gesture={pan}>
+                <View style={styles.grabber}>{header}</View>
+              </GestureDetector>
+              <ScrollView
+                ref={scrollRef}
+                style={styles.scroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                scrollEventThrottle={32}
+                onScroll={(event) => {
+                  scrollY.current = event.nativeEvent.contentOffset.y;
+                }}
+                onLayout={(event) => {
+                  viewportHeight.current = event.nativeEvent.layout.height;
+                }}>
+                <View ref={scrollContentRef} style={styles.scrollContent}>
+                  {children}
                 </View>
-              ) : null}
-              {children}
+              </ScrollView>
             </Animated.View>
-          </GestureDetector>
+          ) : (
+            <GestureDetector gesture={pan}>
+              <Animated.View
+                onLayout={handleLayout}
+                style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.md) + space.sm }, contentStyle, sheetStyle]}>
+                {header}
+                {children}
+              </Animated.View>
+            </GestureDetector>
+          )}
         </KeyboardAvoidingView>
       </GestureHandlerRootView>
     </Modal>
@@ -150,6 +228,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     paddingHorizontal: gutter,
     paddingTop: space.sm,
+    gap: space.md,
+    // Never taller than the screen above the keyboard.
+    flexShrink: 1,
+  },
+  grabber: {
+    gap: space.md,
+  },
+  scroll: {
+    flexShrink: 1,
+  },
+  scrollContent: {
     gap: space.md,
   },
   handle: {

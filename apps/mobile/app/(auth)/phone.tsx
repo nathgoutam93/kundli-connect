@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import CountryPicker, { Country, CountryCode } from 'react-native-country-picker-modal';
 
 import { AppText } from '@/components/ui/app-text';
@@ -209,7 +210,7 @@ export default function PhoneScreen() {
             />
             <KeyboardAvoidingView
                 style={styles.container}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                behavior="padding">
                 <View style={styles.headerSection}>
                     <AppText variant="overline" color={colors.accent}>
                         {showOtp ? 'Step 2 of 2' : 'Step 1 of 2'}

@@ -20,6 +20,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import 'react-native-reanimated';
 
 import { ToastHost } from '@/components/ui/toast';
@@ -65,6 +66,8 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
+      {/* The app draws edge-to-edge on Android, so the window no longer resizes for the keyboard. */}
+      <KeyboardProvider statusBarTranslucent navigationBarTranslucent preserveEdgeToEdge>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <ThemeProvider value={navigationTheme}>
@@ -89,6 +92,7 @@ export default function RootLayout() {
           </ThemeProvider>
         </AuthProvider>
       </QueryClientProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }
