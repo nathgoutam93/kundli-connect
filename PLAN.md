@@ -4,7 +4,7 @@
 
 Kundli Connect is a matchmaking and dating platform focused on astrology-based compatibility using Kundli generation and matchmaking scores.
 
-Backend architecture is built entirely on Supabase products with third-party astrology APIs.
+Backend architecture is built entirely on Supabase products; Kundlis and matches are calculated in Edge Functions (see supabase/README.md → Astrology engine).
 
 # Core Goals
 
@@ -43,11 +43,11 @@ Using only Supabase products:
 
 # Third Party Services
 
-## Kundli API
+## Kundli engine
 
-https://astrologyapi.com/developers/v1/vedic/birth_details
-https://astrologyapi.com/developers/v1/vedic/astro_details
-https://astrologyapi.com/developers/v1/vedic/match_making_detailed_report
+No third-party astrology API: positions come from astronomy-engine (MIT) inside the Edge
+Functions, with Lahiri ayanamsa and Ashtakoota matching implemented in
+`supabase/functions/_shared/astro/`.
 
 ## Push Notifications
 

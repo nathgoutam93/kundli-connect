@@ -13,6 +13,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 import { usePressAnimation } from '@/hooks/use-press-animation';
+import { openLegalDocument } from '@/lib/legal';
 import { AnimatedPressable } from '@/lib/motion';
 
 export default function SettingsScreen() {
@@ -142,6 +143,27 @@ export default function SettingsScreen() {
               <AppText variant="footnote" color={colors.textMuted}>
                 Permanently remove your profile and data
               </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </LinkRow>
+        </SettingsSection>
+
+        <SettingsSection title="Legal">
+          <LinkRow onPress={() => void openLegalDocument('terms')} accessibilityLabel="Terms of Service">
+            <View style={styles.linkIcon}>
+              <Ionicons name="document-text-outline" size={18} color={colors.accent} />
+            </View>
+            <View style={styles.accountCopy}>
+              <AppText variant="subhead">Terms of Service</AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </LinkRow>
+          <LinkRow onPress={() => void openLegalDocument('privacy')} accessibilityLabel="Privacy Policy">
+            <View style={styles.linkIcon}>
+              <Ionicons name="lock-closed-outline" size={18} color={colors.accent} />
+            </View>
+            <View style={styles.accountCopy}>
+              <AppText variant="subhead">Privacy Policy</AppText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
           </LinkRow>

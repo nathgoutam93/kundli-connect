@@ -58,7 +58,7 @@ export function offsetForLocalTime(timeZone: string, date: string, time: string)
   return offset / 60;
 }
 
-/** The UTC offset (hours) to send to the astrology API for this birth. */
+/** The UTC offset (hours) in force at this birth, used to convert the birth time to UTC. */
 export function resolveUtcOffset(birthTimezone: string, date: string, time: string) {
   const value = birthTimezone.trim();
 

@@ -37,7 +37,6 @@ closes.
 - [ ] `npm run supabase:db:push`
 - [ ] Set the Edge Function secrets (see section 4 for payments):
       ```sh
-      supabase secrets set ASTROLOGY_API_USER_ID=... ASTROLOGY_API_KEY=...
       supabase secrets set PAYMENT_PROVIDER=dummy PAYMENTS_ALLOW_DUMMY=true   # until Razorpay is ready
       ```
 - [ ] `npm run supabase:functions:deploy`
@@ -125,8 +124,9 @@ Push goes through the Expo push service (`exp.host`), which needs platform crede
 - [ ] Add an iOS `bundleIdentifier` to `apps/mobile/app.json` (only the Android `package` is set).
 - [ ] Production env for EAS builds (`eas env:create` or the EAS dashboard), not a local `.env`:
       `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
-      `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`, `EXPO_PUBLIC_SOCIAL_AUTH_PROVIDERS` (and the Google
-      client IDs if you use the native picker).
+      `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`, `EXPO_PUBLIC_SOCIAL_AUTH_PROVIDERS`,
+      `EXPO_PUBLIC_PRIVACY_POLICY_URL`, `EXPO_PUBLIC_TERMS_URL` (and the Google client IDs if you
+      use the native picker).
 - [ ] **Restrict the Google Maps key** in Google Cloud to your Android package + SHA-1 and to the
       Maps SDK for Android (it's only used for the Android map). `EXPO_PUBLIC_` values are
       visible to anyone with the app.
@@ -150,10 +150,19 @@ These are likely to block review if missing.
       and the chat menu; unblock under Settings → Blocked people. Unmatch and Hide work too.
 - [ ] **Act on reports (Apple 1.2).** Decide who reviews `user_reports` and how quickly (aim for
       within 24 hours), and follow the moderation steps in `supabase/README.md`.
-- [ ] **Privacy policy** URL (required by both stores, Google OAuth and Meta) and **terms of
-      service**, linked from the app (welcome screen and settings).
-- [ ] **Age gate.** The birth date picker allows any date up to today; onboarding (and ideally
-      the database) should refuse anyone under 18, and the terms should say so.
+- [x] **Age gate (18+).** The birth date picker stops at 18 years ago, and the database refuses an
+      under-18 date of birth (and finishing onboarding without one) for app users. The terms and
+      the welcome screen say the app is 18+. Profiles saved before the gate can be found with the
+      query in `supabase/migrations/20260611090000_age_gate.sql`.
+- [x] **Privacy policy and terms in the app.** Linked from the welcome screen (consent line) and
+      Settings → Legal. Draft text is built in (`apps/mobile/constants/legal.ts`).
+- [ ] **Finish the legal text.** Have a lawyer review the drafts, fill in every bracketed value
+      (`LEGAL_CONTACT`: company name, address, support and grievance emails, Grievance Officer;
+      dates, city, retention days, payment provider), and describe billing once it's final.
+- [ ] **Host the privacy policy and terms** on a public web page (required by both stores, the
+      Google OAuth consent screen and Meta). Use the same text as the app, then set
+      `EXPO_PUBLIC_PRIVACY_POLICY_URL` and `EXPO_PUBLIC_TERMS_URL` for the build so the app opens
+      the hosted pages and they can't drift apart.
 - [ ] Content moderation for profile photos and bios (manual review queue at minimum).
 
 ## 8. Store listings
@@ -180,18 +189,21 @@ These are likely to block review if missing.
 ## 9. Legal and compliance (India)
 
 - [ ] Privacy policy that covers the **DPDP Act 2023**: what you collect, why, retention, how to
-      delete, grievance officer contact.
+      delete, grievance officer contact. The built-in draft covers these headings; it needs legal
+      review, real contact details, and updating if the data flows change (e.g. adding analytics).
 - [ ] Birth details, location and photos are sensitive; only collect what you use and say how
       long you keep it.
 - [ ] GST registration and invoices for paid credits/subscriptions if required.
-- [ ] Check the astrology API's terms allow commercial use and your expected volume.
+- [ ] Have an astrologer spot-check a few Kundlis and matches (the engine and the Guna Milan
+      tables it uses are described in `supabase/README.md` → Astrology engine).
 
 ## 10. Operations
 
 - [ ] Error reporting in the app (e.g. Sentry via `sentry-expo` / `@sentry/react-native`).
 - [ ] Watch Edge Function logs and errors in Supabase after launch.
-- [ ] Set spend caps / usage alerts for Supabase, the SMS provider, Google Maps and the
-      astrology API.
+- [ ] Set spend caps / usage alerts for Supabase, the SMS provider and Google Maps.
+- [ ] Once the new astrology engine is deployed, remove the old AstrologyAPI secrets
+      (`supabase secrets unset ASTROLOGY_API_USER_ID ASTROLOGY_API_KEY`) and cancel that plan.
 - [ ] A support email shown in the app and store listings.
 - [ ] Decide how you'll handle refunds and failed payments (Razorpay dashboard + manual credit
       adjustment).

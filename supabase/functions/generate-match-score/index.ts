@@ -1,5 +1,8 @@
+import { type AshtakootaResult, ashtakoota, matchReport, moonProfile } from "../_shared/astro/ashtakoota.ts";
+import { birthInstant } from "../_shared/astro/ephemeris.ts";
+import { KUNDLI_ENGINE_VERSION } from "../_shared/astro/kundli.ts";
 import { assertCanInteract, refundCredit, requireUuid, spendCredit } from "../_shared/guards.ts";
-import { HttpError, jsonResponse, readJson, requiredEnv, servePost } from "../_shared/http.ts";
+import { HttpError, jsonResponse, readJson, servePost } from "../_shared/http.ts";
 import { getRequestContext, orderedPair } from "../_shared/supabase.ts";
 import { resolveUtcOffset } from "../_shared/timezone.ts";
 
@@ -33,190 +36,9 @@ type CompatibilityResult = {
 type MatchScoreRow = {
   id: string;
   compatibility_report: CompatibilityResult;
-  raw_report: Record<string, unknown>;
 };
 
-function splitDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return { day, month, year };
-}
-
-function splitTime(value: string) {
-  const [hour = 0, min = 0] = value.split(":").map(Number);
-  return { hour, min };
-}
-
-function asRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function asNumber(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  return undefined;
-}
-
-function asString(value: unknown) {
-  if (value === null || value === undefined || value === "") {
-    return undefined;
-  }
-
-  return String(value);
-}
-
-function firstString(raw: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = asString(raw[key]);
-    if (value) {
-      return value;
-    }
-  }
-
-  return undefined;
-}
-
-function boundedPercent(value: number) {
-  return Math.max(0, Math.min(Math.round(value), 100));
-}
-
-function kootaPercent(koota: Record<string, unknown> | null) {
-  if (!koota) {
-    return undefined;
-  }
-
-  const received = asNumber(koota.received_points);
-  const total = asNumber(koota.total_points);
-
-  if (received === undefined || total === undefined || total <= 0) {
-    return undefined;
-  }
-
-  return boundedPercent((received / total) * 100);
-}
-
-function kootaPoints(koota: Record<string, unknown> | null) {
-  if (!koota) {
-    return { received: 0, total: 0 };
-  }
-
-  return {
-    received: asNumber(koota.received_points) ?? 0,
-    total: asNumber(koota.total_points) ?? 0,
-  };
-}
-
-function doshaLabel(label: string, section: unknown) {
-  const raw = asRecord(section);
-  if (!raw) {
-    return undefined;
-  }
-
-  const present = firstString(raw, [
-    "present",
-    "is_present",
-    "has_dosha",
-    "status",
-  ]);
-  const report = firstString(raw, ["report", "conclusion", "description"]);
-
-  if (present && /true|yes|present|high|bad|negative/i.test(present)) {
-    return label;
-  }
-
-  if (report && !/not|no dosha|absent|free/i.test(report)) {
-    return label;
-  }
-
-  return undefined;
-}
-
-function matchReportFromRaw(rawResponse: Record<string, unknown>) {
-  const conclusion = asRecord(rawResponse.conclusion);
-
-  return firstString(conclusion ?? {}, ["match_report"]);
-}
-
-function parseMatchReport(
-  rawResponse: Record<string, unknown>,
-  profileId: string,
-): CompatibilityResult {
-  const ashtakoota = asRecord(rawResponse.ashtakoota) ?? {};
-  const kootaNames = [
-    "varna",
-    "vashya",
-    "tara",
-    "yoni",
-    "maitri",
-    "gan",
-    "bhakut",
-    "nadi",
-  ];
-  const kootas = kootaNames.map((name) => asRecord(ashtakoota[name]));
-  const points = kootas.map(kootaPoints);
-  const received = points.reduce((total, point) => total + point.received, 0);
-  const possible =
-    points.reduce((total, point) => total + point.total, 0) || 36;
-  const total = asRecord(ashtakoota.total);
-  const totalReceived = asNumber(total?.received_points) ?? received;
-  const totalPossible = asNumber(total?.total_points) ?? possible;
-  const overallScore = boundedPercent((totalReceived / totalPossible) * 100);
-  const conclusion = asRecord(rawResponse.conclusion);
-  const matchReport = matchReportFromRaw(rawResponse);
-  const manglik = doshaLabel("Manglik", rawResponse.manglik);
-  const rajju = doshaLabel("Rajju", rawResponse.rajju);
-  const vedha = doshaLabel("Vedha", rawResponse.vedha);
-  const nadiPercent = kootaPercent(asRecord(ashtakoota.nadi));
-  const bhakutPercent = kootaPercent(asRecord(ashtakoota.bhakut));
-  const breakdown = [
-    { label: "Guna Milan", value: overallScore },
-    { label: "Nadi Compatibility", value: nadiPercent ?? overallScore },
-    { label: "Bhakoot/Rashi Matching", value: bhakutPercent ?? overallScore },
-    { label: "Overall Match", value: overallScore },
-  ];
-
-  return {
-    id: `compat-${profileId}-${Date.now()}`,
-    generatedAt: new Date().toISOString(),
-    overallScore,
-    summary:
-      matchReport ??
-      firstString(conclusion ?? {}, ["report", "description"]) ??
-      `Guna Milan score ${totalReceived.toFixed(1)} out of ${totalPossible.toFixed(1)}.`,
-    yogas: [
-      `Guna ${totalReceived.toFixed(1)}/${totalPossible.toFixed(1)}`,
-      ...(overallScore >= 70 ? ["Strong Ashtakoota"] : ["Moderate Ashtakoota"]),
-    ],
-    doshas: [manglik, rajju, vedha].filter((value): value is string =>
-      Boolean(value),
-    ),
-    breakdown,
-    raw: rawResponse,
-  };
-}
-
-function compatibilityWithRawMatchReport(row: MatchScoreRow) {
-  const matchReport = matchReportFromRaw(row.raw_report ?? {});
-
-  if (!matchReport) {
-    return row.compatibility_report;
-  }
-
-  return {
-    ...row.compatibility_report,
-    summary: matchReport,
-  };
-}
-
-function toAstrologyBirthBody(profile: ProfileBirthDetails, prefix: "m" | "f") {
+function toMoonProfile(profile: ProfileBirthDetails) {
   if (
     !profile.date_of_birth ||
     !profile.time_of_birth ||
@@ -224,40 +46,53 @@ function toAstrologyBirthBody(profile: ProfileBirthDetails, prefix: "m" | "f") {
     profile.birth_longitude === null ||
     !profile.birth_timezone
   ) {
-    throw new Error(
-      `${profile.display_name ?? "A profile"} is missing required birth details.`,
-    );
+    throw new Error(`${profile.display_name ?? "A profile"} is missing required birth details.`);
   }
 
-  const { day, month, year } = splitDate(profile.date_of_birth);
-  const { hour, min } = splitTime(profile.time_of_birth);
-
-  return {
-    [`${prefix}_day`]: day,
-    [`${prefix}_month`]: month,
-    [`${prefix}_year`]: year,
-    [`${prefix}_hour`]: hour,
-    [`${prefix}_min`]: min,
-    [`${prefix}_lat`]: profile.birth_latitude,
-    [`${prefix}_lon`]: profile.birth_longitude,
-    [`${prefix}_tzone`]: resolveUtcOffset(profile.birth_timezone, profile.date_of_birth, profile.time_of_birth),
-  };
+  const utcOffset = resolveUtcOffset(profile.birth_timezone, profile.date_of_birth, profile.time_of_birth);
+  return moonProfile({
+    utc: birthInstant(profile.date_of_birth, profile.time_of_birth, utcOffset),
+    latitude: profile.birth_latitude,
+    longitude: profile.birth_longitude,
+  });
 }
 
 function isMale(profile: ProfileBirthDetails) {
-  return /male|man|boy/i.test(profile.gender ?? "");
+  return /^(male|man|boy)$/i.test(profile.gender?.trim() ?? "");
 }
 
-function buildMatchBody(
-  viewer: ProfileBirthDetails,
-  target: ProfileBirthDetails,
-) {
-  const male = isMale(target) && !isMale(viewer) ? target : viewer;
-  const female = male.id === viewer.id ? target : viewer;
+/** Guna Milan is defined for a bride and groom; for other pairs the viewer takes the groom's role. */
+function assignRoles(viewer: ProfileBirthDetails, target: ProfileBirthDetails) {
+  const groom = isMale(target) && !isMale(viewer) ? target : viewer;
+  const bride = groom.id === viewer.id ? target : viewer;
+  return { bride, groom };
+}
+
+function toCompatibility(result: AshtakootaResult, profileId: string): CompatibilityResult {
+  const overallScore = Math.round((result.total / result.maxTotal) * 100);
+  const summary = matchReport(result);
+  const generatedAt = new Date().toISOString();
 
   return {
-    ...toAstrologyBirthBody(male, "m"),
-    ...toAstrologyBirthBody(female, "f"),
+    id: `compat-${profileId}-${Date.now()}`,
+    generatedAt,
+    overallScore,
+    summary,
+    yogas: [
+      `Guna ${result.total}/${result.maxTotal}`,
+      ...result.kootas.filter((koota) => koota.points === koota.maxPoints && koota.maxPoints >= 5).map((koota) => `Full ${koota.name}`),
+    ],
+    doshas: [
+      ...(result.nadiDosha ? ["Nadi Dosha"] : []),
+      ...(result.bhakootDosha ? ["Bhakoot Dosha"] : []),
+      ...(result.manglik.mismatch ? ["Manglik"] : []),
+    ],
+    breakdown: result.kootas.map((koota) => ({
+      label: `${koota.name} · ${koota.points}/${koota.maxPoints}`,
+      value: Math.round((koota.points / koota.maxPoints) * 100),
+    })),
+    // The app reads conclusion.match_report as the narrative.
+    raw: { engine: KUNDLI_ENGINE_VERSION, ashtakoota: result, conclusion: { match_report: summary } },
   };
 }
 
@@ -267,9 +102,6 @@ const profileColumns =
 servePost(async (request) => {
   const body = await readJson<{ targetProfileId?: string }>(request);
   const targetProfileId = requireUuid(body.targetProfileId, "targetProfileId");
-
-  const astrologyApiKey = requiredEnv("ASTROLOGY_API_KEY");
-  const astrologyUserId = Deno.env.get("ASTROLOGY_API_USER_ID");
   const { userId, adminClient } = await getRequestContext(request);
 
   const pair = orderedPair(userId, targetProfileId);
@@ -277,7 +109,7 @@ servePost(async (request) => {
     assertCanInteract(adminClient, userId, targetProfileId),
     adminClient
       .from("match_scores")
-      .select("id, compatibility_report, raw_report")
+      .select("id, compatibility_report")
       .eq("user_a_id", pair.userAId)
       .eq("user_b_id", pair.userBId)
       .maybeSingle<MatchScoreRow>(),
@@ -295,7 +127,7 @@ servePost(async (request) => {
   if (existingScore?.compatibility_report) {
     return jsonResponse({
       matchScoreId: existingScore.id,
-      compatibility: compatibilityWithRawMatchReport(existingScore),
+      compatibility: existingScore.compatibility_report,
       cached: true,
     });
   }
@@ -306,10 +138,11 @@ servePost(async (request) => {
     throw new HttpError(404, "Could not find both profiles for matchmaking.");
   }
 
-  // Validate birth details before charging, so an incomplete profile never costs a credit.
-  let astrologyBody: Record<string, number>;
+  // Calculate before charging, so an incomplete profile never costs a credit.
+  let compatibility: CompatibilityResult;
   try {
-    astrologyBody = buildMatchBody(viewer, target);
+    const { bride, groom } = assignRoles(viewer, target);
+    compatibility = toCompatibility(ashtakoota(toMoonProfile(bride), toMoonProfile(groom)), target.id);
   } catch (error) {
     throw new HttpError(400, error instanceof Error ? error.message : "Missing required birth details.");
   }
@@ -320,44 +153,6 @@ servePost(async (request) => {
     `Generated compatibility with ${targetProfileId}`,
   );
 
-  const endpoint =
-    Deno.env.get("ASTROLOGY_MATCH_API_ENDPOINT") ??
-    "https://json.astrologyapi.com/v1/match_making_detailed_report";
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    "x-astrologyapi-key": astrologyApiKey,
-  };
-  if (astrologyUserId) {
-    headers.Authorization = `Basic ${btoa(`${astrologyUserId}:${astrologyApiKey}`)}`;
-  }
-
-  let rawResponse: Record<string, unknown>;
-  try {
-    const astrologyResponse = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(astrologyBody),
-    });
-    const responseText = await astrologyResponse.text();
-    try {
-      rawResponse = JSON.parse(responseText);
-    } catch {
-      rawResponse = { responseText };
-    }
-
-    if (!astrologyResponse.ok) {
-      throw new HttpError(502, "Astrology match-making request failed", {
-        status: astrologyResponse.status,
-        details: rawResponse,
-      });
-    }
-  } catch (error) {
-    await refundCredit(adminClient, transactionId);
-    throw error instanceof HttpError ? error : new HttpError(502, "Astrology match-making request failed");
-  }
-
-  const compatibility = parseMatchReport(rawResponse, target.id);
   const { data: matchScore, error: scoreUpsertError } = await adminClient
     .from("match_scores")
     .upsert(
@@ -367,7 +162,7 @@ servePost(async (request) => {
         generated_by: userId,
         compatibility_score: compatibility.overallScore,
         compatibility_report: compatibility,
-        raw_report: rawResponse,
+        raw_report: compatibility.raw,
         generated_at: compatibility.generatedAt,
       },
       { onConflict: "user_a_id,user_b_id" },
@@ -375,8 +170,10 @@ servePost(async (request) => {
     .select("id")
     .single<{ id: string }>();
 
-  if (scoreUpsertError) throw scoreUpsertError;
+  if (scoreUpsertError) {
+    await refundCredit(adminClient, transactionId);
+    throw scoreUpsertError;
+  }
 
   return jsonResponse({ matchScoreId: matchScore.id, compatibility });
 });
-
