@@ -176,7 +176,8 @@ export const DEFAULT_PROFILE: UserProfile = {
   email: '',
   dateOfBirth: '',
   timeOfBirth: '',
-  age: 25,
+  // Worked out from dateOfBirth when the profile loads; 0 hides it until then.
+  age: 0,
   gender: '',
   genderPreferences: [],
   height: '',

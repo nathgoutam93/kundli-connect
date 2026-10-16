@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { ageFromBirthDate } from '@/lib/age';
 import { getSupabaseClient } from '@/lib/supabase';
 import type {
   ChatMessage,
@@ -714,6 +715,7 @@ export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProf
     name: row.display_name || profile.name,
     email: row.email || profile.email,
     dateOfBirth: toProfileDate(row.date_of_birth) || profile.dateOfBirth,
+    age: ageFromBirthDate(toProfileDate(row.date_of_birth) || profile.dateOfBirth),
     timeOfBirth: row.time_of_birth || profile.timeOfBirth,
     gender: row.gender || profile.gender,
     genderPreferences: row.gender_preferences ?? profile.genderPreferences,
