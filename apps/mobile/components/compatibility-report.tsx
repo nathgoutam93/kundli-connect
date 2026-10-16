@@ -27,7 +27,7 @@ const RING_STROKE = 4;
 const RING_RADIUS = (DIAL_SIZE - RING_STROKE) / 2 - 3;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-/** The astrology API's narrative report, when present in the raw compatibility payload. */
+/** The narrative match report, when present in the raw compatibility payload. */
 export function getMatchReport(compatibility?: Pick<CompatibilityResult, 'raw'>): string | undefined {
   const conclusion = compatibility?.raw?.conclusion;
   if (conclusion && typeof conclusion === 'object' && 'match_report' in conclusion) {

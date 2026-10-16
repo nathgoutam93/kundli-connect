@@ -37,7 +37,6 @@ closes.
 - [ ] `npm run supabase:db:push`
 - [ ] Set the Edge Function secrets (see section 4 for payments):
       ```sh
-      supabase secrets set ASTROLOGY_API_USER_ID=... ASTROLOGY_API_KEY=...
       supabase secrets set PAYMENT_PROVIDER=dummy PAYMENTS_ALLOW_DUMMY=true   # until Razorpay is ready
       ```
 - [ ] `npm run supabase:functions:deploy`
@@ -195,14 +194,16 @@ These are likely to block review if missing.
 - [ ] Birth details, location and photos are sensitive; only collect what you use and say how
       long you keep it.
 - [ ] GST registration and invoices for paid credits/subscriptions if required.
-- [ ] Check the astrology API's terms allow commercial use and your expected volume.
+- [ ] Have an astrologer spot-check a few Kundlis and matches (the engine and the Guna Milan
+      tables it uses are described in `supabase/README.md` → Astrology engine).
 
 ## 10. Operations
 
 - [ ] Error reporting in the app (e.g. Sentry via `sentry-expo` / `@sentry/react-native`).
 - [ ] Watch Edge Function logs and errors in Supabase after launch.
-- [ ] Set spend caps / usage alerts for Supabase, the SMS provider, Google Maps and the
-      astrology API.
+- [ ] Set spend caps / usage alerts for Supabase, the SMS provider and Google Maps.
+- [ ] Once the new astrology engine is deployed, remove the old AstrologyAPI secrets
+      (`supabase secrets unset ASTROLOGY_API_USER_ID ASTROLOGY_API_KEY`) and cancel that plan.
 - [ ] A support email shown in the app and store listings.
 - [ ] Decide how you'll handle refunds and failed payments (Razorpay dashboard + manual credit
       adjustment).

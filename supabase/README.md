@@ -41,8 +41,8 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
   `get_discover_profiles`, `get_incoming_likes`, `get_chat_previews`. Public profile data comes
   from the `profile_cards` view, which hides fields a user marked as not visible.
 - **Writes with side effects go through Edge Functions** (`generate-kundli`,
-  `generate-match-score`, `create-like`, `reply-to-like`, `send-chat-message`). They hold the
-  astrology API keys, spend credits, and send push notifications in the background after
+  `generate-match-score`, `create-like`, `reply-to-like`, `send-chat-message`). They calculate
+  Kundlis and match scores, spend credits, and send push notifications in the background after
   responding. Multi-step writes (`reply_to_like`, `send_chat_message`) are single SQL
   transactions.
 - **Shared Edge Function code** lives in `functions/_shared/` (HTTP helpers, auth, push).
@@ -128,17 +128,33 @@ clear its Storage folders. Use `status = 'dismissed'` for reports that need no a
 `profiles.birth_timezone` holds the IANA zone detected from the birthplace's coordinates in the
 app (e.g. `Asia/Kolkata`), or a fixed UTC offset in hours (`5.5`) for older profiles and manual
 overrides. `_shared/timezone.ts` turns it into the offset in force at the birth date and time
-(daylight saving and historical changes included, e.g. UTC+6:30 in India in 1942-45) before
-calling AstrologyAPI, in both `generate-kundli` and `generate-match-score`.
+(daylight saving and historical changes included, e.g. UTC+6:30 in India in 1942-45), which
+converts the birth time to UTC in both `generate-kundli` and `generate-match-score`.
 
-## Kundli charts
+## Astrology engine
 
-`generate-kundli` calls AstrologyAPI for the details (`astro_details`), the chart images
-(`horo_chart_image/:chartId`) and the chart layout (`horo_chart/:chartId`), all in parallel. The
-layout is normalised into `kundlis.chart_houses` (12 houses from the ascendant, with the sign and
-planets in each) and the app draws the chart from it. Kundlis generated before this get their
-layout backfilled the first time the chart screen asks. If the layout is unavailable the app
-shows the chart images, and otherwise an honest "still being prepared" state with a retry.
+Kundlis and match scores are calculated inside the Edge Functions (`functions/_shared/astro/`);
+there is no third-party astrology API, key or per-call cost.
+
+- **Positions** (`ephemeris.ts`): [astronomy-engine](https://github.com/cosinekitty/astronomy)
+  (MIT, pure TypeScript, no data files) gives the apparent Sun, Moon and planet positions; the
+  ascendant comes from local sidereal time; Rahu is the mean lunar node (Ketu opposite); the
+  ayanamsa is Lahiri (same definition as the Swiss Ephemeris' `SE_SIDM_LAHIRI`). Checked against
+  the Swiss Ephemeris over 400 random charts from 1930–2010: planets within 20", the Moon within
+  5", the ascendant within 1" (`tests/astro_test.ts` keeps reference charts as fixtures).
+- **Kundli** (`kundli.ts`): sun/moon/ascendant signs, nakshatra and pada, varna, vashya, yoni,
+  gana, nadi, tithi, yoga, karana, name syllable, Manglik (Mars in houses 1, 2, 4, 7, 8 or 12
+  from the lagna and/or Moon), Kaal Sarp, and a few sign-based yogas (Gajakesari, Budhaditya,
+  Chandra-Mangala, Pancha Mahapurusha). `kundlis.chart_houses` holds the D1 and D9 (navamsa)
+  layouts with whole-sign houses from the ascendant, which the app draws; `raw_response` holds the
+  details shown as badges and `chart_raw_responses` every planet's position. No chart images are
+  generated any more (older Kundlis' images still display).
+- **Matching** (`ashtakoota.ts`): North Indian Ashtakoota / Guna Milan out of 36, plus Nadi,
+  Bhakoot and Manglik-mismatch doshas and a plain-language report. Traditions differ on a few
+  tables; this uses element-based Varna, the common symmetric Vashya table and the Saravali Gana
+  table. Change them there if your astrologer prefers another school.
+- `KUNDLI_ENGINE_VERSION` is part of each Kundli's `input_signature`; bump it after changing the
+  calculation and every Kundli is rebuilt on its next request. Stored match scores are kept.
 
 ## Payments
 

@@ -47,7 +47,7 @@ const PRIVACY_POLICY: LegalDocument = {
         [
           'Your phone number (to sign in with a one-time code), or your name and email address if you sign in with Google, Facebook or Apple.',
           'Profile details: name, gender, who you’d like to meet, height, city, bio, photos, and anything optional you add such as work, education, family plans, religious beliefs, drinking and smoking.',
-          'Birth details: date, time and place of birth, including the place’s coordinates and time zone. These are used to generate your Kundli.',
+          'Birth details: date, time and place of birth, including the place’s coordinates and time zone. These are used to generate your Kundli, which we calculate on our own servers; your birth details aren’t sent to any astrology service.',
           'What you do in the app: likes, passes, messages, matches, reports and blocks.',
           'Purchases: which credits or plans you bought and their status. Card and UPI details are handled by our payment provider and never reach us.',
         ],
@@ -86,7 +86,6 @@ const PRIVACY_POLICY: LegalDocument = {
         'We share data only with service providers who help us run the app, and only what each one needs:',
         [
           'Supabase: hosting for our database, file storage, sign-in and server functions.',
-          'AstrologyAPI: your birth date, time, coordinates and time zone (without your name or contact details) to calculate your chart.',
           'SMS providers: your phone number, to send sign-in codes.',
           'Google, Facebook or Apple: only if you choose to sign in with them.',
           'Expo, Google (Firebase) and Apple: to deliver push notifications.',
