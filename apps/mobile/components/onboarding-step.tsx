@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { type ReactNode, useEffect } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -91,7 +92,7 @@ export function OnboardingStep({
 
   return (
     <Screen starSeed={index + 3}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <View style={styles.topBar}>
           {showBack && router.canGoBack() ? (
             <IconButton icon="chevron-back" accessibilityLabel="Go back" onPress={() => router.back()} size={40} />

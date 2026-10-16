@@ -9,6 +9,9 @@ import { colors, gutter, radius, shadow, space } from '@/constants/theme';
 import { haptics } from '@/lib/haptics';
 import { durations } from '@/lib/motion';
 
+// Slides down and settles without overshoot: a firm, near-critically damped spring, clamped.
+const TOAST_ENTERING = SlideInUp.springify().damping(26).stiffness(240).overshootClamping(1);
+
 type IconName = ComponentProps<typeof Ionicons>['name'];
 export type ToastTone = 'success' | 'info' | 'warning';
 
@@ -85,7 +88,7 @@ export function ToastHost() {
       {current ? (
         <Animated.View
           key={current.id}
-          entering={SlideInUp.springify().damping(18).stiffness(220)}
+          entering={TOAST_ENTERING}
           exiting={FadeOutUp.duration(durations.base)}
           layout={LinearTransition}
           style={styles.toast}>

@@ -1,5 +1,4 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import WheelPicker from '@quidone/react-native-wheel-picker';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -8,6 +7,7 @@ import { OnboardingStep } from '@/components/onboarding-step';
 import { AppText } from '@/components/ui/app-text';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Card } from '@/components/ui/card';
+import { WheelPicker } from '@/components/ui/wheel-picker';
 import { colors, fontFamily, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 import { isAdultBirthDate, latestAdultBirthDate, MINIMUM_AGE } from '@/lib/age';
@@ -187,6 +187,8 @@ export default function KundliDetailsScreen() {
     const { profile, updateProfile } = useAppData();
     const [dobParts, setDobParts] = useState(() => getInitialDateParts(profile.dateOfBirth));
     const [timeParts, setTimeParts] = useState(() => getInitialTimeParts(profile.timeOfBirth));
+    const [isPickerOpen, setIsPickerOpen] = useState(false);
+    // Kept after closing so the sheet's exit animation still shows the same wheel.
     const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);
     const [selectedDay, selectedMonth, selectedYear] = dobParts;
     const selectedYearNumber = Number(selectedYear);
@@ -221,6 +223,11 @@ export default function KundliDetailsScreen() {
         const clampedDay = Math.min(nextDay, getMaxDay(nextYear, clampedMonth));
 
         setDobParts([pad2(clampedDay), pad2(clampedMonth), String(nextYear)]);
+    }
+
+    function openPicker(picker: ActivePicker) {
+        setActivePicker(picker);
+        setIsPickerOpen(true);
     }
 
     function updateTimePart(index: number, value: string) {
@@ -321,7 +328,7 @@ export default function KundliDetailsScreen() {
                     </View>
                     <GroupedInputRow
                         values={displayedDobParts}
-                        onPressPart={(index) => setActivePicker({ group: 'date', index })}
+                        onPressPart={(index) => openPicker({ group: 'date', index })}
                         showSeparator
                         separatorChar="·"
                         wideLastInput
@@ -339,7 +346,7 @@ export default function KundliDetailsScreen() {
                     </View>
                     <GroupedInputRow
                         values={timeParts}
-                        onPressPart={(index) => setActivePicker({ group: 'time', index })}
+                        onPressPart={(index) => openPicker({ group: 'time', index })}
                         showSeparator
                         separatorChar=":"
                     />
@@ -362,18 +369,19 @@ export default function KundliDetailsScreen() {
             </View>
 
             <BottomSheet
-                visible={Boolean(activePicker)}
-                onClose={() => setActivePicker(null)}
+                visible={isPickerOpen}
+                onClose={() => setIsPickerOpen(false)}
                 title={getActivePickerTitle()}
                 doneLabel="Done">
                 <View style={styles.singlePickerFrame}>
                     <WheelPicker
+                        key={activePicker ? `${activePicker.group}-${activePicker.index}` : 'none'}
                         data={getActivePickerOptions()}
                         value={getActivePickerValue()}
                         itemHeight={ITEM_HEIGHT}
                         visibleItemCount={VISIBLE_ITEMS}
                         enableScrollByTapOnItem
-                        onValueChanged={({ item }) => updateActivePickerValue(item.value)}
+                        onValueChanged={updateActivePickerValue}
                         width="100%"
                         style={styles.singlePicker}
                         itemTextStyle={styles.pickerText}

@@ -1,7 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState, type ComponentProps } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
@@ -49,9 +50,13 @@ export default function DeleteAccountScreen() {
 
   return (
     <Screen starSeed={33}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <ScreenHeader title="Delete account" />
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <KeyboardAwareScrollView
+          bottomOffset={space.xl}
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
           <View style={styles.heading}>
             <View style={styles.warningIcon}>
               <Ionicons name="warning-outline" size={26} color={colors.danger} />
@@ -102,8 +107,8 @@ export default function DeleteAccountScreen() {
             onPress={handleDelete}
           />
           <Button label="Keep my account" variant="ghost" disabled={isDeleting} onPress={() => router.back()} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+      </View>
     </Screen>
   );
 }

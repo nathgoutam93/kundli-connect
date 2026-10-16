@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import WheelPicker from '@quidone/react-native-wheel-picker';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Location from 'expo-location';
 import { requireOptionalNativeModule } from 'expo-modules-core';
@@ -14,6 +13,7 @@ import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { TextField } from '@/components/ui/text-field';
+import { WheelPicker } from '@/components/ui/wheel-picker';
 import { colors, fontFamily, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 import { formatUtcOffset, isNumericOffset, MANUAL_OFFSETS, offsetForLocalTime, zoneForCoordinate } from '@/lib/timezone';
@@ -432,7 +432,7 @@ export default function BirthLocationScreen() {
               itemHeight={44}
               visibleItemCount={5}
               enableScrollByTapOnItem
-              onValueChanged={({ item }) => setManualOffset(item.value)}
+              onValueChanged={setManualOffset}
               width="100%"
               itemTextStyle={styles.offsetText}
               overlayItemStyle={styles.offsetSelection}

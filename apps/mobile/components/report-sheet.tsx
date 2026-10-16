@@ -64,7 +64,7 @@ export function ReportSheet({ visible, onClose, userId, name, onReported }: Repo
   }
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} eyebrow="Safety" title={`Report ${name}`}>
+    <BottomSheet visible={visible} onClose={onClose} eyebrow="Safety" title={`Report ${name}`} scrollable>
       <View style={styles.section}>
         <AppText variant="subhead" color={colors.textMuted}>
           What’s wrong?
