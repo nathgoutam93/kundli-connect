@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.106.2';
 
 import { HttpError, jsonResponse, requiredEnv, servePost } from '../_shared/http.ts';
+import { type ChartHouse, normaliseChartHouses } from '../_shared/kundli-chart.ts';
 import { getRequestContext } from '../_shared/supabase.ts';
 
 type ProfileBirthDetails = {
@@ -301,6 +302,52 @@ async function fetchAstroDetails(astrologyBody: Record<string, number>, authHead
   return rawResponse;
 }
 
+async function fetchChartData(chartId: string, astrologyBody: Record<string, number>, authHeader: string) {
+  const endpointBase = Deno.env.get('ASTROLOGY_CHART_ENDPOINT_BASE') ?? 'https://json.astrologyapi.com/v1/horo_chart';
+  const response = await fetch(`${endpointBase}/${chartId}`, {
+    method: 'POST',
+    headers: { Authorization: authHeader, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(astrologyBody),
+  });
+  if (!response.ok) {
+    throw new Error(`Astrology chart data ${chartId} request failed with status ${response.status}.`);
+  }
+  return (await response.json()) as unknown;
+}
+
+/** Chart data for every chart id; settled so one failing chart doesn't sink the rest. */
+function fetchAllChartData(astrologyBody: Record<string, number>, authHeader: string) {
+  return Promise.allSettled(getChartIds().map((chartId) => fetchChartData(chartId, astrologyBody, authHeader)));
+}
+
+/**
+ * House-by-house layout for each chart, so the app can draw it. Best effort: a missing chart is
+ * left out rather than failing the Kundli (the app falls back to the chart image).
+ */
+function toChartHouses(results: PromiseSettledResult<unknown>[], ascendant?: string) {
+  const chartIds = getChartIds();
+  const chartHouses: Record<string, ChartHouse[]> = {};
+  results.forEach((result) => {
+    if (result.status === 'rejected') console.warn(result.reason);
+  });
+
+  // D1 is anchored on the ascendant from astro_details. If the API's own order didn't start at
+  // the ascendant, its other charts can't be trusted to be house-ordered either, so skip them.
+  const d1Result = results[chartIds.indexOf('D1')];
+  const d1 = d1Result?.status === 'fulfilled' ? normaliseChartHouses(d1Result.value, ascendant) : null;
+  if (d1) chartHouses.D1 = d1.houses;
+  const otherChartsAreHouseOrdered = d1 !== null && !d1.rotated;
+
+  results.forEach((result, index) => {
+    const chartId = chartIds[index];
+    if (chartId === 'D1' || result.status !== 'fulfilled' || !otherChartsAreHouseOrdered) return;
+    const normalised = normaliseChartHouses(result.value);
+    if (normalised) chartHouses[chartId] = normalised.houses;
+  });
+
+  return chartHouses;
+}
+
 function birthDetailsSignature(profile: ProfileBirthDetails) {
   return [
     profile.date_of_birth,
@@ -323,12 +370,13 @@ servePost(async (request) => {
     adminClient.from('profiles').select(profileColumns).eq('id', userId).single<ProfileBirthDetails>(),
     adminClient
       .from('kundlis')
-      .select('input_signature, parsed_summary, chart_image_paths')
+      .select('input_signature, parsed_summary, chart_image_paths, chart_houses')
       .eq('user_id', userId)
       .maybeSingle<{
         input_signature: string | null;
         parsed_summary: Record<string, unknown>;
         chart_image_paths: Record<string, string> | null;
+        chart_houses: Record<string, ChartHouse[]> | null;
       }>(),
   ]);
   const profile = profileResult.data;
@@ -350,22 +398,6 @@ servePost(async (request) => {
     throw new HttpError(400, 'Missing required birth details');
   }
 
-  // The astrology calls are paid and deterministic: reuse the stored Kundli when it was built
-  // from the same birth details (e.g. onboarding retries or repeated calls).
-  const inputSignature = birthDetailsSignature(profile);
-  const existing = existingResult.data;
-  if (existing && existing.input_signature === inputSignature) {
-    await updateKundliStatus(adminClient, userId, 'generated');
-    return jsonResponse({
-      status: 'generated',
-      parsed_summary: existing.parsed_summary,
-      chart_image_paths: existing.chart_image_paths ?? {},
-      cached: true,
-    });
-  }
-
-  await updateKundliStatus(adminClient, userId, 'pending');
-
   const { day, month, year } = splitDate(profile.date_of_birth);
   const { hour, min } = splitTime(profile.time_of_birth);
   const astrologyBody = {
@@ -379,16 +411,46 @@ servePost(async (request) => {
     tzone: Number(profile.birth_timezone),
   };
 
+  // The astrology calls are paid and deterministic: reuse the stored Kundli when it was built
+  // from the same birth details (e.g. onboarding retries or repeated calls).
+  const inputSignature = birthDetailsSignature(profile);
+  const existing = existingResult.data;
+  if (existing && existing.input_signature === inputSignature) {
+    let chartHouses = existing.chart_houses ?? {};
+    // Kundlis generated before chart data was stored get it once, on their next request.
+    if (Object.keys(chartHouses).length === 0) {
+      chartHouses = toChartHouses(
+        await fetchAllChartData(astrologyBody, astrologyAuthHeader),
+        typeof existing.parsed_summary.ascendant === 'string' ? existing.parsed_summary.ascendant : undefined
+      );
+      if (Object.keys(chartHouses).length > 0) {
+        await adminClient.from('kundlis').update({ chart_houses: chartHouses }).eq('user_id', userId);
+      }
+    }
+    await updateKundliStatus(adminClient, userId, 'generated');
+    return jsonResponse({
+      status: 'generated',
+      parsed_summary: existing.parsed_summary,
+      chart_image_paths: existing.chart_image_paths ?? {},
+      chart_houses: chartHouses,
+      cached: true,
+    });
+  }
+
+  await updateKundliStatus(adminClient, userId, 'pending');
+
   try {
-    // Details and every chart image are independent calls; run them together.
-    const [rawResponse, ...chartImages] = await Promise.all([
+    // Details, chart data and every chart image are independent calls; run them together.
+    const [rawResponse, chartData, ...chartImages] = await Promise.all([
       fetchAstroDetails(astrologyBody, astrologyAuthHeader),
+      fetchAllChartData(astrologyBody, astrologyAuthHeader),
       ...getChartIds().map((chartId) =>
         generateChartImage(adminClient, userId, chartId, astrologyBody, astrologyAuthHeader)
       ),
     ]);
 
     const parsedSummary = pickSummary(rawResponse);
+    const chartHouses = toChartHouses(chartData, parsedSummary.ascendant);
     const chartImagePaths = Object.fromEntries(chartImages.map((chart) => [chart.chartId, chart.path]));
     const chartRawResponses = Object.fromEntries(chartImages.map((chart) => [chart.chartId, chart.response]));
     const { error: upsertError } = await adminClient.from('kundlis').upsert(
@@ -398,6 +460,7 @@ servePost(async (request) => {
         parsed_summary: parsedSummary,
         chart_image_paths: chartImagePaths,
         chart_raw_responses: chartRawResponses,
+        chart_houses: chartHouses,
         input_signature: inputSignature,
         generated_at: new Date().toISOString(),
       },
@@ -413,6 +476,7 @@ servePost(async (request) => {
       status: 'generated',
       parsed_summary: parsedSummary,
       chart_image_paths: chartImagePaths,
+      chart_houses: chartHouses,
     });
   } catch (error) {
     await updateKundliStatus(adminClient, userId, 'failed');

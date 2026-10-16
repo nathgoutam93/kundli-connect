@@ -34,7 +34,7 @@ export function ProfileView({ profile, heroAccessory }: ProfileViewProps) {
     <View style={styles.container}>
       <View style={styles.hero}>
         {heroPhoto ? (
-          <Image source={{ uri: heroPhoto }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <Image source={{ uri: heroPhoto }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
         ) : (
           <View style={styles.heroPlaceholder}>
             <Ionicons name="person" size={56} color={colors.textFaint} />
@@ -103,7 +103,7 @@ export function ProfileDetails({ details }: { details: ProfileDetail[] }) {
 }
 
 function ProfilePhoto({ uri }: { uri: string }) {
-  return <Image source={{ uri }} style={styles.inlinePhoto} contentFit="cover" />;
+  return <Image source={{ uri }} style={styles.inlinePhoto} contentFit="cover" transition={250} />;
 }
 
 const styles = StyleSheet.create({

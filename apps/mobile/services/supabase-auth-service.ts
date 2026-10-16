@@ -29,7 +29,13 @@ export type KundliSummary = {
   raw?: Record<string, unknown>;
   rawResponse?: Record<string, unknown>;
   chartImages?: KundliChartImage[];
+  /** House-by-house layout per divisional chart (D1, D9…), when the server has it. */
+  chartHouses?: Record<string, ChartHouse[]>;
 };
+
+export type ChartPlanet = { name: string; abbr: string; degree?: string };
+/** One house of a chart, starting from the ascendant (house 1). `sign` is 1 (Aries) to 12 (Pisces). */
+export type ChartHouse = { house: number; sign: number; signName: string; planets: ChartPlanet[] };
 
 /** Signed chart URLs live this long; the Kundli query refetches before they expire. */
 export const KUNDLI_CHART_URL_TTL_SECONDS = 60 * 60;
@@ -149,6 +155,7 @@ type KundliRow = {
   parsed_summary: KundliSummary;
   raw_response: Record<string, unknown>;
   chart_image_paths: Record<string, string> | null;
+  chart_houses: Record<string, ChartHouse[]> | null;
   generated_at: string;
 };
 
@@ -949,7 +956,7 @@ export async function getCurrentUserKundliSummary() {
 
   const { data, error } = await supabase
     .from('kundlis')
-    .select('parsed_summary, raw_response, chart_image_paths, generated_at')
+    .select('parsed_summary, raw_response, chart_image_paths, chart_houses, generated_at')
     .eq('user_id', user.id)
     .maybeSingle<KundliRow>();
 
@@ -977,6 +984,7 @@ export async function getCurrentUserKundliSummary() {
     ...data.parsed_summary,
     generatedAt: data.parsed_summary.generatedAt || data.generated_at,
     rawResponse: data.raw_response,
+    chartHouses: data.chart_houses ?? {},
     chartImages: charts
       .map(([chartId, path]) => ({ chartId, path, signedUrl: signedUrlByPath.get(path) ?? '' }))
       .filter((image): image is KundliChartImage => Boolean(image.signedUrl)),

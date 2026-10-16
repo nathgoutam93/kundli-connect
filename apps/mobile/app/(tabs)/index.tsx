@@ -299,10 +299,6 @@ function RecommendationCard({
         });
     }
 
-    function animateBack() {
-        departure.value = withSpring(0, springs.settle);
-    }
-
     async function pass() {
         await animateOut(-1);
         onPass();
@@ -345,11 +341,10 @@ function RecommendationCard({
         setOpeningMessage('');
         setIsMessageOpen(false);
         haptics.press();
-        const [sent] = await Promise.all([onLike(trimmedMessage), animateOut(1)]);
-        if (!sent) {
-            setOpeningMessage(trimmedMessage);
-            animateBack();
-        }
+        // Fly the card out first: sending removes the profile from Discover straight away. If the
+        // like fails the profile is restored and arrives again as a fresh card.
+        await animateOut(1);
+        await onLike(trimmedMessage);
     }
 
     function skipAfterScore() {

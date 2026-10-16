@@ -81,6 +81,19 @@ function createPlacesSessionToken() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+const PLACES_UNAVAILABLE = 'Place search is unavailable right now. Type your birth town and drop a pin on the map.';
+
+/** "5.5" → "UTC+05:30"; null when the value isn't a plausible offset. */
+function formatUtcOffset(value: string) {
+  const hours = Number(value.trim());
+  if (!value.trim() || !Number.isFinite(hours) || hours < -12 || hours > 14) {
+    return null;
+  }
+  const totalMinutes = Math.round(Math.abs(hours) * 60);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `UTC${hours < 0 ? '−' : '+'}${pad(Math.floor(totalMinutes / 60))}:${pad(totalMinutes % 60)}`;
+}
+
 export default function BirthLocationScreen() {
   const { profile, updateProfile, generateKundli, isServiceBusy } = useAppData();
   const placesSessionTokenRef = useRef(createPlacesSessionToken());
@@ -139,7 +152,8 @@ export default function BirthLocationScreen() {
 
   useEffect(() => {
     if (!googlePlacesApiKey) {
-      setPlacesError('Google Places API key is not configured.');
+      // Configuration problems are for developers; people get a way forward instead.
+      setPlacesError(__DEV__ ? 'Google Places API key is not configured.' : PLACES_UNAVAILABLE);
       return;
     }
 
@@ -175,9 +189,10 @@ export default function BirthLocationScreen() {
 
         if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
           setPlaceSuggestions([]);
-          setPlacesError(
-            data.error_message || `Place suggestions unavailable (${data.status ?? 'unknown error'}).`
-          );
+          if (__DEV__) {
+            console.info('Google Places autocomplete error.', data.status, data.error_message);
+          }
+          setPlacesError(PLACES_UNAVAILABLE);
           return;
         }
 
@@ -194,7 +209,7 @@ export default function BirthLocationScreen() {
         }
         if (isMounted) {
           setPlaceSuggestions([]);
-          setPlacesError('Place suggestions unavailable. Check your connection and API configuration.');
+          setPlacesError('Couldn’t search places. Check your connection and try again.');
         }
       } finally {
         if (isMounted) {
@@ -419,13 +434,13 @@ export default function BirthLocationScreen() {
       </View>
 
       <TextField
-        label="Timezone (UTC offset)"
+        label="Timezone"
         value={birthTimezone}
         onChangeText={setBirthTimezone}
         placeholder="5.5"
         keyboardType="numbers-and-punctuation"
         returnKeyType="done"
-        hint="Hours from UTC, e.g. 5.5 for India. Filled in automatically when you pick a place."
+        hint={`${formatUtcOffset(birthTimezone) ?? 'Hours from UTC, e.g. 5.5 for India'} · filled in when you pick a place`}
       />
     </OnboardingStep>
   );

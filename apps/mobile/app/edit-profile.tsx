@@ -35,6 +35,8 @@ const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 4;
 const PHOTO_GRID_COLUMNS = 3;
 const PHOTO_GRID_GAP = space.xs;
+/** Portrait tiles, the same shape as onboarding and the profile photos people see. */
+const PHOTO_ASPECT = 1.3;
 const GENDER_OPTIONS = ['Male', 'Female', 'Non - Binary'];
 const PREFERENCE_OPTIONS = ['Male', 'Female', 'Non - Binary People', 'Everyone'];
 const FAMILY_PLAN_OPTIONS = ['Dont want Children', 'Want Children', 'Open to Children', 'Not Sure'];
@@ -44,8 +46,6 @@ const HABIT_OPTIONS = ['Never', 'Sometimes', 'Often', 'Prefer not to say'];
 type FormState = {
     name: string;
     email: string;
-    dateOfBirth: string;
-    timeOfBirth: string;
     gender: string;
     genderPreferences: string[];
     height: string;
@@ -73,8 +73,6 @@ function profileToForm(profile: UserProfile): FormState {
     return {
         name: profile.name === 'New User' ? '' : profile.name,
         email: profile.email,
-        dateOfBirth: profile.dateOfBirth,
-        timeOfBirth: profile.timeOfBirth,
         gender: profile.gender,
         genderPreferences: profile.genderPreferences ?? [],
         height: profile.height,
@@ -292,11 +290,12 @@ export default function EditProfileScreen() {
 
         const slotSize = (photoGridWidth - PHOTO_GRID_GAP * (PHOTO_GRID_COLUMNS - 1)) / PHOTO_GRID_COLUMNS;
         const stepSize = slotSize + PHOTO_GRID_GAP;
+        const rowStepSize = slotSize * PHOTO_ASPECT + PHOTO_GRID_GAP;
         const photoUris = photoUrisRef.current;
         const startColumn = startIndex % PHOTO_GRID_COLUMNS;
         const startRow = Math.floor(startIndex / PHOTO_GRID_COLUMNS);
         const columnOffset = Math.round(gesture.dx / stepSize);
-        const rowOffset = Math.round(gesture.dy / stepSize);
+        const rowOffset = Math.round(gesture.dy / rowStepSize);
         const nextColumn = Math.min(Math.max(startColumn + columnOffset, 0), PHOTO_GRID_COLUMNS - 1);
         const nextRow = Math.min(Math.max(startRow + rowOffset, 0), Math.ceil(photoUris.length / PHOTO_GRID_COLUMNS) - 1);
         const targetIndex = Math.min(nextRow * PHOTO_GRID_COLUMNS + nextColumn, photoUris.length - 1);
@@ -358,8 +357,6 @@ export default function EditProfileScreen() {
             await updateProfile({
                 name: form.name.trim() || profile.name,
                 email: form.email.trim(),
-                dateOfBirth: form.dateOfBirth.trim(),
-                timeOfBirth: form.timeOfBirth.trim(),
                 gender: form.gender,
                 genderPreferences: form.genderPreferences,
                 height: form.height.trim(),
@@ -458,10 +455,12 @@ export default function EditProfileScreen() {
                     <Section title="Basics">
                         <TextField label="Name" value={form.name} onChangeText={(value) => updateForm('name', value)} />
                         <TextField label="Email" value={form.email} onChangeText={(value) => updateForm('email', value)} keyboardType="email-address" />
-                        <TextField label="Date of birth" value={form.dateOfBirth} onChangeText={(value) => updateForm('dateOfBirth', value)} />
-                        <TextField label="Time of birth" value={form.timeOfBirth} onChangeText={(value) => updateForm('timeOfBirth', value)} />
                         <TextField label="Location" value={form.location} onChangeText={(value) => updateForm('location', value)} />
                         <TextField label="Bio" value={form.bio} onChangeText={(value) => updateForm('bio', value)} multiline />
+                    </Section>
+
+                    <Section title="Birth details">
+                        <LockedBirthDetails profile={profile} />
                     </Section>
 
                     <Section title="Identity">
@@ -560,10 +559,14 @@ function PhotoSlot({
     if (!photoUri) {
         return (
             <Pressable
-                style={[styles.photoSlot, slotSize ? { width: slotSize, height: slotSize } : null, slotStyle]}
+                accessibilityRole="button"
+                accessibilityLabel="Add photo"
+                style={[styles.photoSlot, styles.photoSlotEmpty, slotSize ? { width: slotSize, height: slotSize * PHOTO_ASPECT } : null, slotStyle]}
                 onPress={onAdd}
                 disabled={isBusy}>
-                <Ionicons name="add" size={22} color={colors.accent} />
+                <View style={styles.addIcon}>
+                    <Ionicons name="add" size={20} color={colors.accent} />
+                </View>
             </Pressable>
         );
     }
@@ -572,7 +575,7 @@ function PhotoSlot({
         <Animated.View
             style={[
                 styles.photoSlot,
-                slotSize ? { width: slotSize, height: slotSize } : null,
+                slotSize ? { width: slotSize, height: slotSize * PHOTO_ASPECT } : null,
                 slotStyle,
                 isDropTarget && !isDragging && styles.photoSlotDropTarget,
                 isDragging && styles.photoSlotDragging,
@@ -589,8 +592,15 @@ function PhotoSlot({
                 disabled={isBusy || isDragging || isUploading}
                 onPress={() => onReplace(index)}
                 style={styles.photoPressable}>
-                <Image source={{ uri: photoUri }} style={styles.photo} contentFit="cover" />
+                <Image source={{ uri: photoUri }} style={styles.photo} contentFit="cover" transition={200} />
             </Pressable>
+            {index === 0 ? (
+                <View style={styles.mainBadge} pointerEvents="none">
+                    <AppText variant="caption" color={colors.onAccent}>
+                        Main
+                    </AppText>
+                </View>
+            ) : null}
             <Pressable
                 accessibilityLabel="Remove photo"
                 hitSlop={10}
@@ -613,6 +623,46 @@ function PhotoSlot({
                 </View>
             )}
         </Animated.View>
+    );
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "14-03-1998" → "14 Mar 1998"; anything unexpected is shown as stored. */
+function formatBirthDate(value: string) {
+    const match = value.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    return match ? `${Number(match[1])} ${MONTHS[Number(match[2]) - 1] ?? match[2]} ${match[3]}` : value;
+}
+
+/** Birth details are fixed after onboarding (the Kundli and every match score depend on them). */
+function LockedBirthDetails({ profile }: { profile: UserProfile }) {
+    const rows = [
+        { icon: 'calendar-outline' as const, label: 'Date', value: formatBirthDate(profile.dateOfBirth) },
+        { icon: 'time-outline' as const, label: 'Time', value: profile.timeOfBirth.slice(0, 5) },
+        { icon: 'location-outline' as const, label: 'Place', value: profile.birthPlace },
+    ].filter((row) => row.value);
+
+    return (
+        <View style={styles.lockedCard} accessible accessibilityLabel={`Birth details, locked. ${rows.map((row) => `${row.label} ${row.value}`).join(', ')}`}>
+            {rows.map((row) => (
+                <View key={row.label} style={styles.lockedRow}>
+                    <Ionicons name={row.icon} size={18} color={colors.accent} />
+                    <AppText variant="subhead" color={colors.textMuted} style={styles.lockedLabel}>
+                        {row.label}
+                    </AppText>
+                    <AppText variant="bodyStrong" style={styles.lockedValue} numberOfLines={1}>
+                        {row.value}
+                    </AppText>
+                </View>
+            ))}
+            <View style={styles.lockedNote}>
+                <Ionicons name="lock-closed" size={14} color={colors.textFaint} />
+                <AppText variant="footnote" color={colors.textFaint} style={styles.lockedNoteText}>
+                    Your Kundli and match scores are built from these, so they can’t be changed. Contact support if
+                    something is wrong.
+                </AppText>
+            </View>
+        </View>
     );
 }
 
@@ -727,25 +777,43 @@ const styles = StyleSheet.create({
     photoSlot: {
         borderRadius: radius.md,
         borderWidth: 1,
-        borderStyle: 'dashed',
-        borderColor: colors.borderStrong,
+        borderColor: colors.transparent,
         backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
     },
+    photoSlotEmpty: {
+        borderStyle: 'dashed',
+        borderColor: colors.borderStrong,
+    },
+    addIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.accentSoft,
+    },
+    mainBadge: {
+        position: 'absolute',
+        left: space.xs,
+        bottom: space.xs,
+        paddingHorizontal: space.xs,
+        paddingVertical: 2,
+        borderRadius: radius.pill,
+        backgroundColor: colors.accent,
+    },
     photoSlotSpaced: {
         marginRight: PHOTO_GRID_GAP,
     },
     photoSlotDragging: {
-        borderStyle: 'solid',
         borderColor: colors.accent,
         opacity: 0.85,
         zIndex: 100,
         elevation: 12,
     },
     photoSlotDropTarget: {
-        borderStyle: 'solid',
         borderColor: colors.accent,
         backgroundColor: colors.surfaceRaised,
     },
@@ -788,5 +856,34 @@ const styles = StyleSheet.create({
         backgroundColor: colors.glass,
         borderWidth: 1,
         borderColor: colors.glassBorder,
+    },
+    lockedCard: {
+        gap: space.sm,
+        padding: space.md,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surfaceSunken,
+    },
+    lockedRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.sm,
+    },
+    lockedLabel: {
+        width: 48,
+    },
+    lockedValue: {
+        flex: 1,
+    },
+    lockedNote: {
+        flexDirection: 'row',
+        gap: space.xs,
+        paddingTop: space.sm,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
+    },
+    lockedNoteText: {
+        flex: 1,
     },
 });

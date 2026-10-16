@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { backgroundGradient, palette } from '@/constants/theme';
+import { useScreenFocused } from '@/hooks/use-screen-focused';
 
 type CelestialBackgroundProps = {
   /** Number of stars to scatter. Use fewer on content-heavy screens. */
@@ -55,6 +56,9 @@ export const CelestialBackground = memo(function CelestialBackground({
     });
   }, [seed, stars]);
   const reduceMotion = useReducedMotion();
+  // Tab screens stay mounted when hidden; only the visible one twinkles.
+  const isFocused = useScreenFocused();
+  const shouldTwinkle = !reduceMotion && isFocused;
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -69,7 +73,7 @@ export const CelestialBackground = memo(function CelestialBackground({
           opacity: star.opacity,
           backgroundColor: star.gold ? palette.gold300 : palette.moon100,
         };
-        return star.twinkle && !reduceMotion ? (
+        return star.twinkle && shouldTwinkle ? (
           <TwinklingStar key={star.key} style={style} baseOpacity={star.opacity} {...star.twinkle} />
         ) : (
           <View key={star.key} style={[styles.star, style]} />

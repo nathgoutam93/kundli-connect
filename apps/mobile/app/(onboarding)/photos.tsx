@@ -125,7 +125,7 @@ export default function PhotosScreen() {
               onPress={isServiceBusy || isUploadingPhotos ? undefined : handlePickPhotos}>
               {photoUri ? (
                 <>
-                  <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
+                  <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" transition={200} />
                   {slot === 0 ? (
                     <View style={styles.mainBadge}>
                       <AppText variant="caption" color={colors.onAccent}>

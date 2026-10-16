@@ -48,6 +48,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         {leading}
         <TextInput
           ref={ref}
+          keyboardAppearance="dark"
           placeholderTextColor={colors.textFaint}
           selectionColor={colors.accent}
           cursorColor={colors.accent}

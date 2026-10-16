@@ -1,37 +1,24 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
+import { KundliChart } from '@/components/kundli-chart';
 import { OnboardingStep } from '@/components/onboarding-step';
 import { AppText } from '@/components/ui/app-text';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { colors, gutter, palette, radius, space } from '@/constants/theme';
+import { useAppData } from '@/hooks/use-app-data';
 import { useKundliQuery } from '@/hooks/use-domain-data';
+import { queryKeys } from '@/lib/query-keys';
+import { useAuth } from '@/providers/auth-provider';
+import { generateCurrentUserKundli } from '@/services/supabase-auth-service';
 
-type Planet = {
-    key: string;
-    label: string;
-    x: number;
-    y: number;
-    degree: number;
-};
-
-const PLANETS = ['Su', 'Mo', 'Ma', 'Me', 'Ju', 'Ve', 'Sa', 'Ra', 'Ke', 'Ur', 'Ne', 'Pl'];
-const CHART_POINTS = [
-    { x: 50, y: 11 },
-    { x: 78, y: 10 },
-    { x: 92, y: 30 },
-    { x: 84, y: 60 },
-    { x: 70, y: 82 },
-    { x: 49, y: 63 },
-    { x: 28, y: 82 },
-    { x: 13, y: 60 },
-    { x: 18, y: 31 },
-    { x: 35, y: 17 },
-] as const;
-const CHARTS = { "D1": "Birth", "D9": "Navamansha" } as const;
+const CHARTS = { D1: 'Birth chart', D9: 'Navamsa' } as const;
 
 type JsonBadge = {
     key: string;
@@ -39,23 +26,39 @@ type JsonBadge = {
     value: string;
 };
 
-function shuffle<T>(items: T[]) {
-    return [...items].sort(() => Math.random() - 0.5);
-}
-
-function generatePlanets(): Planet[] {
-    return shuffle(PLANETS)
-        .slice(0, 10)
-        .map((label, index) => ({
-            key: `${label}-${index}`,
-            label,
-            x: CHART_POINTS[index].x,
-            y: CHART_POINTS[index].y,
-            degree: Math.floor(Math.random() * 30),
-        }));
-}
+/**
+ * Readable names for astro_details keys. The API's own keys are terse and some are misspelt
+ * ("Naksahtra"), so known ones are mapped and the rest are title-cased.
+ */
+const DETAIL_LABELS: Record<string, string> = {
+    ascendant: 'Ascendant',
+    ascendantlord: 'Ascendant lord',
+    sign: 'Moon sign',
+    signlord: 'Moon sign lord',
+    naksahtra: 'Nakshatra',
+    nakshatra: 'Nakshatra',
+    naksahtralord: 'Nakshatra lord',
+    nakshatralord: 'Nakshatra lord',
+    charan: 'Pada',
+    varna: 'Varna',
+    vashya: 'Vashya',
+    yoni: 'Yoni',
+    gan: 'Gana',
+    nadi: 'Nadi',
+    yog: 'Yoga',
+    karan: 'Karana',
+    tithi: 'Tithi',
+    yunja: 'Yunja',
+    tatva: 'Element',
+    namealphabet: 'Name syllable',
+    paya: 'Paya',
+};
 
 function formatJsonLabel(value: string) {
+    const known = DETAIL_LABELS[value.toLowerCase().replace(/[^a-z]/g, '')];
+    if (known) {
+        return known;
+    }
     return value
         .replace(/\[(\d+)\]/g, ' $1')
         .replace(/[_-]+/g, ' ')
@@ -128,18 +131,50 @@ function flattenJsonBadges(value: unknown, parentKey = ''): JsonBadge[] {
     });
 }
 
-/** Chart images (or a placeholder chart) plus the parsed Kundli details. Used in onboarding and on the Kundli screen. */
+/**
+ * The Kundli chart plus the parsed details. Draws the chart from house data when the server has
+ * it, falls back to the generated chart images, and otherwise says so honestly with a retry.
+ * Used in onboarding and on the Kundli screen.
+ */
 export function KundliChartContent() {
     const { data: kundliSummary = null, isPending: isLoadingSummary } = useKundliQuery();
-    const { width } = useWindowDimensions();
-    const [activeChart, setActiveChart] = useState(0);
-    const planets = useMemo(() => generatePlanets(), []);
+    const generateKundli = useAppData((state) => state.generateKundli);
+    const queryClient = useQueryClient();
+    const { user } = useAuth();
+    const [isRetrying, setIsRetrying] = useState(false);
+    const chartHouses = kundliSummary?.chartHouses ?? {};
+    const drawableCharts = Object.keys(CHARTS).filter((chartId) => chartHouses[chartId]?.length === 12);
+    const [selectedChart, setSelectedChart] = useState<string | null>(null);
+    const activeChart = selectedChart && drawableCharts.includes(selectedChart) ? selectedChart : drawableCharts[0];
     const chartImages = kundliSummary?.chartImages ?? [];
-    const chartWidth = width - gutter * 2;
     const jsonBadges = useMemo(
         () => flattenJsonBadges(kundliSummary?.rawResponse).slice(0, 80),
         [kundliSummary?.rawResponse]
     );
+
+    // Kundlis generated before chart data was stored: one quiet request fills it in (the server
+    // reuses the stored Kundli and only fetches the chart layout).
+    const hasRequestedBackfill = useRef(false);
+    const needsBackfill = Boolean(kundliSummary) && drawableCharts.length === 0;
+    useEffect(() => {
+        if (needsBackfill && user && !hasRequestedBackfill.current) {
+            hasRequestedBackfill.current = true;
+            generateCurrentUserKundli()
+                .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.kundli(user.id) }))
+                .catch(() => undefined);
+        }
+    }, [needsBackfill, queryClient, user]);
+
+    async function retry() {
+        setIsRetrying(true);
+        try {
+            await generateKundli();
+        } catch (error) {
+            Alert.alert('Chart unavailable', error instanceof Error ? error.message : 'Please try again in a moment.');
+        } finally {
+            setIsRetrying(false);
+        }
+    }
 
     return (
         <View style={styles.content}>
@@ -147,69 +182,43 @@ export function KundliChartContent() {
                 <Card style={styles.loadingCard}>
                     <EmptyState loading title="Reading the stars" message="Fetching your generated chart." />
                 </Card>
-            ) : chartImages.length > 0 ? (
-                <View style={styles.chartCarousel}>
-                    <ScrollView
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        onMomentumScrollEnd={(event) =>
-                            setActiveChart(Math.round(event.nativeEvent.contentOffset.x / chartWidth))
-                        }>
-                        {chartImages.map((chartImage) => (
-                            <View key={chartImage.path} style={[styles.chartImageCard, { width: chartWidth }]}>
-                                <Image
-                                    source={{ uri: chartImage.signedUrl }}
-                                    style={styles.chartImage}
-                                    contentFit="contain"
-                                />
-                                <AppText variant="overline" color={palette.midnight600} align="center">
-                                    {CHARTS[chartImage.chartId as keyof typeof CHARTS] ?? chartImage.chartId} chart
-                                </AppText>
-                            </View>
-                        ))}
-                    </ScrollView>
-                    {chartImages.length > 1 ? (
-                        <View style={styles.pagination}>
-                            {chartImages.map((chartImage, index) => (
-                                <View
-                                    key={chartImage.path}
-                                    style={[styles.dot, index === activeChart && styles.activeDot]}
-                                />
-                            ))}
-                        </View>
+            ) : activeChart ? (
+                <View style={styles.chartBlock}>
+                    {drawableCharts.length > 1 ? (
+                        <SegmentedControl
+                            options={drawableCharts.map((chartId) => ({
+                                value: chartId,
+                                label: CHARTS[chartId as keyof typeof CHARTS] ?? chartId,
+                            }))}
+                            value={activeChart}
+                            onChange={setSelectedChart}
+                        />
                     ) : null}
+                    <KundliChart
+                        key={activeChart}
+                        houses={chartHouses[activeChart]}
+                        caption={`${CHARTS[activeChart as keyof typeof CHARTS] ?? activeChart} (${activeChart}) · numbers are signs, Asc marks your ascendant`}
+                    />
                 </View>
+            ) : chartImages.length > 0 ? (
+                <ChartImageCarousel chartImages={chartImages} />
             ) : (
-                <Card padded={false} style={styles.chartCard}>
-                    <View style={styles.chart}>
-                        <View style={[styles.line, styles.lineDown]} />
-                        <View style={[styles.line, styles.lineUp]} />
-                        <View style={[styles.line, styles.verticalDiamond]} />
-                        <View style={[styles.line, styles.horizontalDiamond]} />
-                        <AppText variant="caption" color={colors.textFaint} style={[styles.houseNumber, styles.houseTop]}>1</AppText>
-                        <AppText variant="caption" color={colors.textFaint} style={[styles.houseNumber, styles.houseLeft]}>7</AppText>
-                        <AppText variant="caption" color={colors.textFaint} style={[styles.houseNumber, styles.houseCenter]}>5</AppText>
-                        <AppText variant="caption" color={colors.textFaint} style={[styles.houseNumber, styles.houseRight]}>3</AppText>
-                        <AppText variant="caption" color={colors.textFaint} style={[styles.houseNumber, styles.houseBottom]}>11</AppText>
-
-                        {planets.map((planet) => (
-                            <View
-                                key={planet.key}
-                                style={[
-                                    styles.planet,
-                                    {
-                                        left: `${planet.x}%`,
-                                        top: `${planet.y}%`,
-                                    },
-                                ]}>
-                                <AppText variant="subhead" color={colors.text}>
-                                    {planet.label}
-                                    <AppText variant="caption" color={colors.accent}> {planet.degree}°</AppText>
-                                </AppText>
-                            </View>
-                        ))}
-                    </View>
+                <Card style={styles.loadingCard}>
+                    <EmptyState
+                        icon="planet-outline"
+                        title="Your chart is still being prepared"
+                        message="Your details are saved. We couldn’t draw the chart just now; try again in a moment."
+                        action={
+                            <Button
+                                label="Try again"
+                                icon="refresh"
+                                variant="secondary"
+                                fullWidth={false}
+                                loading={isRetrying}
+                                onPress={retry}
+                            />
+                        }
+                    />
                 </Card>
             )}
 
@@ -226,6 +235,38 @@ export function KundliChartContent() {
                             </View>
                         ))}
                     </View>
+                </View>
+            ) : null}
+        </View>
+    );
+}
+
+function ChartImageCarousel({ chartImages }: { chartImages: { chartId: string; path: string; signedUrl: string }[] }) {
+    const { width } = useWindowDimensions();
+    const [activeImage, setActiveImage] = useState(0);
+    const chartWidth = width - gutter * 2;
+
+    return (
+        <View style={styles.chartCarousel}>
+            <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(event) => setActiveImage(Math.round(event.nativeEvent.contentOffset.x / chartWidth))}>
+                {chartImages.map((chartImage) => (
+                    <View key={chartImage.path} style={[styles.chartImageCard, { width: chartWidth }]}>
+                        <Image source={{ uri: chartImage.signedUrl }} style={styles.chartImage} contentFit="contain" transition={250} />
+                        <AppText variant="overline" color={palette.midnight600} align="center">
+                            {CHARTS[chartImage.chartId as keyof typeof CHARTS] ?? `${chartImage.chartId} chart`}
+                        </AppText>
+                    </View>
+                ))}
+            </ScrollView>
+            {chartImages.length > 1 ? (
+                <View style={styles.pagination}>
+                    {chartImages.map((chartImage, index) => (
+                        <View key={chartImage.path} style={[styles.dot, index === activeImage && styles.activeDot]} />
+                    ))}
                 </View>
             ) : null}
         </View>
@@ -250,6 +291,9 @@ const styles = StyleSheet.create({
     },
     loadingCard: {
         minHeight: 240,
+    },
+    chartBlock: {
+        gap: space.md,
     },
     chartCarousel: {
         gap: space.sm,
@@ -279,61 +323,6 @@ const styles = StyleSheet.create({
     activeDot: {
         width: 18,
         backgroundColor: colors.accent,
-    },
-    chartCard: {
-        overflow: 'hidden',
-    },
-    chart: {
-        aspectRatio: 1.16,
-        minHeight: 230,
-        maxHeight: 270,
-    },
-    line: {
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        width: 382,
-        height: 1,
-        backgroundColor: colors.accentLine,
-    },
-    lineDown: {
-        transform: [{ translateX: -191 }, { rotate: '39deg' }],
-    },
-    lineUp: {
-        transform: [{ translateX: -191 }, { rotate: '-39deg' }],
-    },
-    verticalDiamond: {
-        transform: [{ translateX: -191 }, { rotate: '90deg' }],
-    },
-    horizontalDiamond: {
-        transform: [{ translateX: -191 }],
-    },
-    houseNumber: {
-        position: 'absolute',
-    },
-    houseTop: {
-        top: '7%',
-        left: '68%',
-    },
-    houseLeft: {
-        top: '23%',
-        left: '18%',
-    },
-    houseCenter: {
-        top: '44%',
-        left: '49%',
-    },
-    houseRight: {
-        top: '23%',
-        right: '18%',
-    },
-    houseBottom: {
-        bottom: '43%',
-        left: '49%',
-    },
-    planet: {
-        position: 'absolute',
-        transform: [{ translateX: -14 }, { translateY: -9 }],
     },
     details: {
         gap: space.sm,

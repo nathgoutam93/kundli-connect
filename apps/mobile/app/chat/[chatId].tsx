@@ -273,6 +273,7 @@ export default function ChatThreadScreen() {
                     <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, space.sm) + space.xs }]}>
                         <TextInput
                             placeholder="Write a message"
+                            keyboardAppearance="dark"
                             placeholderTextColor={colors.textFaint}
                             selectionColor={colors.accent}
                             value={draft}

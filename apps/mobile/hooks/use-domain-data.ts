@@ -150,6 +150,14 @@ export function useDomainMutations() {
     }),
     sendLike: useMutation({
       mutationFn: ({ profileId, message }: { profileId: string; message: string }) => createLike(profileId, message),
+      // Like pass, the profile leaves Discover straight away and comes back if the like fails.
+      onMutate: async ({ profileId }) => {
+        await client.cancelQueries({ queryKey: queryKeys.discoverProfiles(id) });
+        const previous = client.getQueryData(queryKeys.discoverProfiles(id));
+        client.setQueryData(queryKeys.discoverProfiles(id), (profiles: { id: string }[] = []) => profiles.filter((p) => p.id !== profileId));
+        return { previous };
+      },
+      onError: (_error, _vars, context) => client.setQueryData(queryKeys.discoverProfiles(id), context?.previous),
       onSuccess: () => invalidate(queryKeys.discoverProfiles(id), queryKeys.sentLikes(id), queryKeys.creditAccount(id), queryKeys.activity(id)),
     }),
     replyToLike: useMutation({
