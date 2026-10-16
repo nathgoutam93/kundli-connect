@@ -79,23 +79,13 @@ export default function SettingsScreen() {
           />
           <SwitchRow
             label="Astrology reports"
-            description="Occasional insights about your chart"
+            description="A weekly note when something notable happens in your chart"
             value={notifications.astrologyReports}
             onValueChange={(value) => updateNotifications({ astrologyReports: value })}
           />
         </SettingsSection>
 
         <SettingsSection title="Privacy">
-          <SwitchRow
-            label="Show distance"
-            value={privacy.showDistance}
-            onValueChange={(value) => updatePrivacy({ showDistance: value })}
-          />
-          <SwitchRow
-            label="Show online status"
-            value={privacy.showOnlineStatus}
-            onValueChange={(value) => updatePrivacy({ showOnlineStatus: value })}
-          />
           <SwitchRow
             label="Discoverable profile"
             description="Turn off to pause appearing in Discover"

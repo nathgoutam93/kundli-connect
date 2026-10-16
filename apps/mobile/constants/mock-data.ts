@@ -163,8 +163,6 @@ export type NotificationSettings = {
 };
 
 export type PrivacySettings = {
-  showDistance: boolean;
-  showOnlineStatus: boolean;
   profileDiscoverable: boolean;
 };
 
@@ -178,7 +176,8 @@ export const DEFAULT_PROFILE: UserProfile = {
   email: '',
   dateOfBirth: '',
   timeOfBirth: '',
-  age: 25,
+  // Worked out from dateOfBirth when the profile loads; 0 hides it until then.
+  age: 0,
   gender: '',
   genderPreferences: [],
   height: '',
@@ -220,7 +219,5 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 };
 
 export const DEFAULT_PRIVACY: PrivacySettings = {
-  showDistance: true,
-  showOnlineStatus: true,
   profileDiscoverable: true,
 };

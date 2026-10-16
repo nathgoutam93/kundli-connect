@@ -9,6 +9,7 @@ import { CelestialTabBar } from '@/components/tab-bar';
 import { FullScreenLoader } from '@/components/ui/loader';
 import { colors } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { useNotificationRouting } from '@/hooks/use-notification-routing';
 import { useRealtimeSync } from '@/hooks/use-realtime-sync';
 import { registerCurrentUserPushToken } from '@/services/supabase-auth-service';
 
@@ -28,6 +29,7 @@ export default function MainTabsLayout() {
   const unreadMessages = chats.reduce((total, chat) => total + (chat.hidden ? 0 : chat.unreadCount), 0);
   const hasCheckedNotificationPromptRef = useRef(false);
   useRealtimeSync();
+  useNotificationRouting(isHydrated && isAuthenticated && hasCompletedOnboarding);
 
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !hasCompletedOnboarding || hasCheckedNotificationPromptRef.current) {
