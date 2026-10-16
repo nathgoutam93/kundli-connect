@@ -36,7 +36,7 @@ export function Avatar({ uri, name, size = 48, ring = null, style }: AvatarProps
         style,
       ]}>
       {uri ? (
-        <Image source={{ uri }} style={[styles.image, { borderRadius: size / 2 }]} contentFit="cover" />
+        <Image source={{ uri }} style={[styles.image, { borderRadius: size / 2 }]} contentFit="cover" transition={200} />
       ) : (
         <View style={[styles.fallback, { borderRadius: size / 2 }]}>
           <AppText

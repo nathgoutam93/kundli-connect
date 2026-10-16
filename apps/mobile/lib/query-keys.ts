@@ -7,7 +7,6 @@ export const queryKeys = {
   sentLikes: (userId: string) => [...queryKeys.user(userId), 'sent-likes'] as const,
   chatPreviews: (userId: string) => [...queryKeys.user(userId), 'chat-previews'] as const,
   chatMessages: (userId: string, chatId: string) => [...queryKeys.user(userId), 'chat-messages', chatId] as const,
-  activity: (userId: string) => [...queryKeys.user(userId), 'activity'] as const,
   creditAccount: (userId: string) => [...queryKeys.user(userId), 'credit-account'] as const,
   subscription: (userId: string) => [...queryKeys.user(userId), 'subscription'] as const,
   subscriptionPlans: ['subscription-plans'] as const,

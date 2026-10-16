@@ -1,7 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Modal, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, {
+    FadeInDown,
+    FadeInUp,
+    interpolate,
+    runOnJS,
+    useAnimatedStyle,
+    useSharedValue,
+    withSequence,
+    withSpring,
+    withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompatibilityHero, CompatibilityReport } from '@/components/compatibility-report';
@@ -12,10 +23,15 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { Screen } from '@/components/ui/screen';
+import { DiscoverSkeleton } from '@/components/ui/skeleton';
 import { TextField } from '@/components/ui/text-field';
+import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, shadow, space } from '@/constants/theme';
 import { type CompatibilityResult, type DiscoverProfile } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { haptics } from '@/lib/haptics';
+import { AnimatedPressable, easings, springs } from '@/lib/motion';
 
 export default function DiscoverScreen() {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -25,6 +41,7 @@ export default function DiscoverScreen() {
         discoverProfiles,
         creditsBalance,
         generateCompatibility,
+        isLoadingDiscover,
         likedProfileIds,
         passProfile,
         profile: viewer,
@@ -56,21 +73,32 @@ export default function DiscoverScreen() {
     }
 
     async function handlePass(profileId: string) {
-        await passProfile(profileId);
+        try {
+            await passProfile(profileId);
+        } catch (error) {
+            Alert.alert('Could not skip', error instanceof Error ? error.message : 'Please try again.');
+            return;
+        }
         if (isRevisitingSkipped) {
             showNextProfile();
         }
     }
 
-    async function handleLike(profileId: string, message: string) {
+    /** Resolves to whether the like went through, so the card can come back if it didn't. */
+    async function handleLike(profileId: string, name: string, message: string) {
         try {
             const sent = await sendLike(profileId, message);
             if (!sent) {
                 Alert.alert('Credits needed', 'Add credits or upgrade to keep liking profiles.');
+                return false;
             }
+            toast.show({ title: 'Like sent', message: `${name} will see your message first.`, tone: 'success', icon: 'heart' });
+            return true;
         } catch (error) {
             const alertMessage = error instanceof Error ? error.message : 'Could not send like.';
+            haptics.error();
             Alert.alert('Like unavailable', alertMessage);
+            return false;
         }
     }
 
@@ -91,6 +119,15 @@ export default function DiscoverScreen() {
             isRevisitingSkipped={isRevisitingSkipped && Boolean(profile)}
         />
     );
+
+    if (!profile && isLoadingDiscover) {
+        return (
+            <Screen>
+                {header}
+                <DiscoverSkeleton />
+            </Screen>
+        );
+    }
 
     if (!profile) {
         const canRevisitSkipped = freshProfiles.length === 0 && skippedProfiles.length > 0 && !isRevisitingSkipped;
@@ -147,7 +184,7 @@ export default function DiscoverScreen() {
                 viewerName={viewer.name}
                 viewerPhotoUri={viewer.photoUris[0]}
                 onPass={() => handlePass(profile.id)}
-                onLike={(message) => handleLike(profile.id, message)}
+                onLike={(message) => handleLike(profile.id, profile.name, message)}
                 onViewScore={() => handleViewScore(profile.id)}
             />
         </Screen>
@@ -175,15 +212,40 @@ function DiscoverHeader({
                     </View>
                 ) : null}
             </View>
-            <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={isPremium ? 'Premium member' : `${creditsBalance} credits. Open plans`}
-                onPress={() => router.push('/subscriptions')}
-                style={({ pressed }) => [styles.creditPill, pressed && styles.pressed]}>
-                <Ionicons name={isPremium ? 'infinite' : 'flash'} size={14} color={colors.accent} />
-                <AppText variant="subhead">{isPremium ? 'Premium' : creditsBalance}</AppText>
-            </Pressable>
+            <CreditPill creditsBalance={creditsBalance} isPremium={isPremium} />
         </View>
+    );
+}
+
+/** Credits shortcut; the count pops when the balance changes (a like spent, a pack bought). */
+function CreditPill({ creditsBalance, isPremium }: { creditsBalance: number; isPremium: boolean }) {
+    const pop = useSharedValue(1);
+    const previousBalance = useRef(creditsBalance);
+    const { animatedStyle, pressHandlers } = usePressAnimation({
+        pressedScale: 0.94,
+        onPress: () => router.push('/subscriptions'),
+    });
+
+    useEffect(() => {
+        if (previousBalance.current !== creditsBalance) {
+            pop.value = withSequence(withTiming(1.3, { duration: 120 }), withSpring(1, springs.pop));
+            previousBalance.current = creditsBalance;
+        }
+    }, [creditsBalance, pop]);
+
+    const countStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+
+    return (
+        <AnimatedPressable
+            accessibilityRole="button"
+            accessibilityLabel={isPremium ? 'Premium member' : `${creditsBalance} credits. Open plans`}
+            style={[styles.creditPill, animatedStyle]}
+            {...pressHandlers}>
+            <Ionicons name={isPremium ? 'infinite' : 'flash'} size={14} color={colors.accent} />
+            <Animated.View style={countStyle}>
+                <AppText variant="subhead">{isPremium ? 'Premium' : creditsBalance}</AppText>
+            </Animated.View>
+        </AnimatedPressable>
     );
 }
 
@@ -199,10 +261,48 @@ function RecommendationCard({
     viewerName: string;
     viewerPhotoUri?: string;
     onPass: () => void;
-    onLike: (message: string) => void;
+    onLike: (message: string) => Promise<boolean>;
     onViewScore: () => Promise<CompatibilityResult | undefined>;
 }) {
     const insets = useSafeAreaInsets();
+    const { width } = useWindowDimensions();
+    // Cards arrive with a soft scale-up and leave left (pass) or up-right (like).
+    const arrival = useSharedValue(0);
+    const departure = useSharedValue(0);
+    const direction = useSharedValue(0);
+
+    useEffect(() => {
+        arrival.value = withSpring(1, springs.settle);
+    }, [arrival]);
+
+    const cardStyle = useAnimatedStyle(() => {
+        const d = departure.value;
+        return {
+            opacity: Math.min(arrival.value, 1) * interpolate(d, [0, 0.7, 1], [1, 0.6, 0]),
+            transform: [
+                { translateX: direction.value * d * width * 0.85 },
+                { translateY: direction.value > 0 ? -d * 90 : d * 16 + (1 - arrival.value) * 18 },
+                { rotate: `${direction.value * d * 9}deg` },
+                { scale: 0.94 + 0.06 * Math.min(arrival.value, 1) },
+            ],
+        };
+    });
+
+    function animateOut(towards: -1 | 1) {
+        return new Promise<void>((resolve) => {
+            direction.value = towards;
+            departure.value = withTiming(1, { duration: 320, easing: easings.in }, (finished) => {
+                if (finished) {
+                    runOnJS(resolve)();
+                }
+            });
+        });
+    }
+
+    async function pass() {
+        await animateOut(-1);
+        onPass();
+    }
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [openingMessage, setOpeningMessage] = useState('');
     const [isScoreOpen, setIsScoreOpen] = useState(false);
@@ -231,7 +331,7 @@ function RecommendationCard({
         setIsMessageOpen(true);
     }
 
-    function sendLike() {
+    async function sendLike() {
         const trimmedMessage = openingMessage.trim();
 
         if (!trimmedMessage) {
@@ -240,30 +340,37 @@ function RecommendationCard({
 
         setOpeningMessage('');
         setIsMessageOpen(false);
-        onLike(trimmedMessage);
+        haptics.press();
+        // Fly the card out first: sending removes the profile from Discover straight away. If the
+        // like fails the profile is restored and arrives again as a fresh card.
+        await animateOut(1);
+        await onLike(trimmedMessage);
     }
 
     function skipAfterScore() {
         setIsScoreOpen(false);
-        onPass();
+        void pass();
     }
 
     return (
         <View style={styles.cardContainer}>
-            <ScrollView
-                contentContainerStyle={[styles.cardContent, { paddingBottom: insets.bottom + 120 }]}
-                showsVerticalScrollIndicator={false}>
-                <ProfileView profile={profile} />
-            </ScrollView>
+            <Animated.View style={[styles.cardContainer, cardStyle]}>
+                <ScrollView
+                    contentContainerStyle={[styles.cardContent, { paddingBottom: insets.bottom + 120 }]}
+                    showsVerticalScrollIndicator={false}>
+                    <ProfileView profile={profile} />
+                </ScrollView>
+            </Animated.View>
 
             <View style={styles.actionsDock}>
                 <IconButton
                     icon="close"
                     accessibilityLabel={`Pass on ${profile.name}`}
-                    onPress={onPass}
+                    onPress={pass}
                     size={60}
                     iconSize={28}
                     variant="surface"
+                    effect="wiggle"
                     style={styles.dockButton}
                 />
                 <IconButton
@@ -274,6 +381,8 @@ function RecommendationCard({
                     size={72}
                     iconSize={32}
                     variant="like"
+                    effect="burst"
+                    haptic="press"
                     style={styles.dockButton}
                 />
             </View>
@@ -342,14 +451,14 @@ function KundaliMatchScore({
     return (
         <Screen edges={['top']} starSeed={21}>
             <ScrollView contentContainerStyle={styles.scoreContent} showsVerticalScrollIndicator={false}>
-                <View style={styles.scoreHeading}>
+                <Animated.View entering={FadeInDown.duration(400)} style={styles.scoreHeading}>
                     <AppText variant="overline" color={colors.accent} align="center">
                         Your Kundli match
                     </AppText>
                     <AppText variant="title1" align="center">
                         {safeViewerName} & {likedName}
                     </AppText>
-                </View>
+                </Animated.View>
                 <CompatibilityHero
                     score={compatibility.overallScore}
                     viewerName={safeViewerName}
@@ -365,7 +474,9 @@ function KundaliMatchScore({
                 />
             </ScrollView>
 
-            <View style={[styles.scoreFooter, { paddingBottom: Math.max(insets.bottom, space.md) + space.xs }]}>
+            <Animated.View
+                entering={FadeInUp.delay(250).duration(400)}
+                style={[styles.scoreFooter, { paddingBottom: Math.max(insets.bottom, space.md) + space.xs }]}>
                 <AppText variant="footnote" color={colors.textMuted} align="center">
                     Only reach out if the match feels right.
                 </AppText>
@@ -386,7 +497,7 @@ function KundaliMatchScore({
                         style={styles.scoreActionPrimary}
                     />
                 </View>
-            </View>
+            </Animated.View>
         </Screen>
     );
 }
@@ -422,9 +533,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.accentLine,
         backgroundColor: colors.surface,
-    },
-    pressed: {
-        opacity: 0.75,
     },
     cardContainer: {
         flex: 1,

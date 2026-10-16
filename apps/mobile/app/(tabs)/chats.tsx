@@ -1,38 +1,57 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, {
+  FadeIn,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { AppText } from '@/components/ui/app-text';
 import { Avatar } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Screen } from '@/components/ui/screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
+import { ChatsSkeleton } from '@/components/ui/skeleton';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { type ChatPreview } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { useRefreshControl } from '@/hooks/use-refresh-control';
+import { haptics } from '@/lib/haptics';
+import { listItemEntering, listItemExiting, listItemLayout } from '@/lib/list-motion';
+import { AnimatedPressable, springs } from '@/lib/motion';
 
 export default function ChatsScreen() {
-  const { chats } = useAppData();
+  const { chats, isLoadingChats, refreshChats } = useAppData();
+  const refreshControl = useRefreshControl(refreshChats);
   const visibleChats = chats.filter((chat) => !chat.hidden);
   const hiddenMatches = chats.filter((chat) => chat.hidden);
 
   return (
     <Screen starSeed={9}>
       <ScreenHeader onBack={false} largeTitle="Matches" />
-      {chats.length > 0 ? (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {chats.length === 0 && isLoadingChats ? (
+        <ChatsSkeleton />
+      ) : chats.length > 0 ? (
+        <ScrollView contentContainerStyle={styles.content} refreshControl={refreshControl} showsVerticalScrollIndicator={false}>
           <MatchSection title="Conversations" matches={visibleChats} />
           {hiddenMatches.length > 0 ? (
             <MatchSection title="Hidden" matches={hiddenMatches} initiallyExpanded={false} />
           ) : null}
         </ScrollView>
       ) : (
-        <EmptyState
-          icon="chatbubbles-outline"
-          title="No matches yet"
-          message="When you and someone else connect, your conversation will start here."
-        />
+        <ScrollView contentContainerStyle={styles.emptyContent} refreshControl={refreshControl}>
+          <EmptyState
+            icon="chatbubbles-outline"
+            title="No matches yet"
+            message="When you and someone else connect, your conversation will start here."
+          />
+        </ScrollView>
       )}
     </Screen>
   );
@@ -47,73 +66,118 @@ function MatchSection({
   matches: ChatPreview[];
   initiallyExpanded?: boolean;
 }) {
-  const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
+  const chevron = useSharedValue(initiallyExpanded ? 1 : 0);
+
+  useEffect(() => {
+    chevron.value = withSpring(isExpanded ? 1 : 0, springs.settle);
+  }, [chevron, isExpanded]);
+
+  const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${chevron.value * 90}deg` }] }));
 
   return (
     <View style={styles.section}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: isExpanded }}
-        onPress={() => setIsExpanded((current) => !current)}
+        onPress={() => {
+          haptics.select();
+          setIsExpanded((current) => !current);
+        }}
         style={styles.sectionHeader}>
         <AppText variant="overline" color={colors.textMuted}>
           {title} · {matches.length}
         </AppText>
-        <Ionicons name={isExpanded ? 'chevron-down' : 'chevron-forward'} size={16} color={colors.textMuted} />
+        <Animated.View style={chevronStyle}>
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        </Animated.View>
       </Pressable>
 
       {isExpanded ? (
-        <View style={styles.list}>
-          {matches.map((match, index) => {
-            const hasUnread = match.unreadCount > 0;
-
-            return (
-              <Pressable
-                key={match.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Chat with ${match.name}${hasUnread ? `, ${match.unreadCount} unread` : ''}`}
-                onPress={() => router.push(`/chat/${match.id}`)}
-                style={({ pressed }) => [styles.row, index > 0 && styles.rowDivider, pressed && styles.rowPressed]}>
-                <Avatar uri={match.avatarUrl} name={match.name} size={56} ring={hasUnread ? colors.accent : null} />
-                <View style={styles.rowText}>
-                  <View style={styles.rowTitle}>
-                    <AppText variant="headline" numberOfLines={1} style={styles.name}>
-                      {match.name}
-                    </AppText>
-                    {match.compatibilityScore ? (
-                      <View style={styles.scoreTag}>
-                        <Ionicons name="sparkles" size={10} color={colors.accent} />
-                        <AppText variant="caption" color={colors.accent}>
-                          {match.compatibilityScore}%
-                        </AppText>
-                      </View>
-                    ) : null}
-                  </View>
-                  <AppText
-                    variant="callout"
-                    numberOfLines={1}
-                    color={hasUnread ? colors.text : colors.textMuted}>
-                    {match.lastMessage || 'Say hello 👋'}
-                  </AppText>
-                </View>
-                {hasUnread ? (
-                  <View style={styles.unreadBadge}>
-                    <AppText variant="caption" color={colors.onAccent}>
-                      {match.unreadCount}
-                    </AppText>
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
+        <Animated.View entering={FadeIn.duration(180)} layout={listItemLayout} style={styles.list}>
+          {matches.map((match, index) => (
+            <Animated.View
+              key={match.id}
+              entering={listItemEntering(index)}
+              exiting={listItemExiting}
+              layout={listItemLayout}>
+              <ChatRow match={match} showDivider={index > 0} />
+            </Animated.View>
+          ))}
+        </Animated.View>
       ) : null}
     </View>
   );
 }
 
+function ChatRow({ match, showDivider }: { match: ChatPreview; showDivider: boolean }) {
+  const router = useRouter();
+  const hasUnread = match.unreadCount > 0;
+  const { animatedStyle, pressHandlers } = usePressAnimation({
+    pressedScale: 0.985,
+    backgroundColor: 'rgba(33, 27, 64, 0)',
+    pressedBackgroundColor: colors.surfaceRaised,
+    haptic: false,
+    onPress: () => router.push(`/chat/${match.id}`),
+  });
+
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={`Chat with ${match.name}${hasUnread ? `, ${match.unreadCount} unread` : ''}`}
+      style={[styles.row, showDivider && styles.rowDivider, animatedStyle]}
+      {...pressHandlers}>
+      <Avatar uri={match.avatarUrl} name={match.name} size={56} ring={hasUnread ? colors.accent : null} />
+      <View style={styles.rowText}>
+        <View style={styles.rowTitle}>
+          <AppText variant="headline" numberOfLines={1} style={styles.name}>
+            {match.name}
+          </AppText>
+          {match.compatibilityScore ? (
+            <View style={styles.scoreTag}>
+              <Ionicons name="sparkles" size={10} color={colors.accent} />
+              <AppText variant="caption" color={colors.accent}>
+                {match.compatibilityScore}%
+              </AppText>
+            </View>
+          ) : null}
+        </View>
+        <AppText variant="callout" numberOfLines={1} color={hasUnread ? colors.text : colors.textMuted}>
+          {match.lastMessage || 'Say hello 👋'}
+        </AppText>
+      </View>
+      {hasUnread ? <UnreadBadge count={match.unreadCount} /> : null}
+    </AnimatedPressable>
+  );
+}
+
+/** Unread count that pops whenever a new message raises it. */
+function UnreadBadge({ count }: { count: number }) {
+  const scale = useSharedValue(1);
+  const previous = useRef(count);
+
+  useEffect(() => {
+    if (count > previous.current) {
+      scale.value = withSequence(withTiming(1.4, { duration: 110 }), withSpring(1, springs.pop));
+    }
+    previous.current = count;
+  }, [count, scale]);
+
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={[styles.unreadBadge, style]}>
+      <AppText variant="caption" color={colors.onAccent}>
+        {count}
+      </AppText>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
+  emptyContent: {
+    flexGrow: 1,
+  },
   content: {
     paddingHorizontal: gutter,
     paddingBottom: space.xxl,
@@ -145,9 +209,6 @@ const styles = StyleSheet.create({
   rowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
-  },
-  rowPressed: {
-    backgroundColor: colors.surfaceRaised,
   },
   rowText: {
     flex: 1,

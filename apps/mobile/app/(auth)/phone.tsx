@@ -286,6 +286,7 @@ export default function PhoneScreen() {
                                 onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
                                 editable={!isVerifying}
                                 keyboardType="number-pad"
+                                keyboardAppearance="dark"
                                 maxLength={OTP_LENGTH}
                                 textContentType="oneTimeCode"
                                 style={styles.hiddenOtpInput}

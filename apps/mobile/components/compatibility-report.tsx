@@ -1,12 +1,31 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Animated, {
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 
 import { AppText } from '@/components/ui/app-text';
 import { Avatar } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { colors, fontFamily, palette, radius, space } from '@/constants/theme';
 import { type CompatibilityBreakdown, type CompatibilityResult } from '@/constants/mock-data';
+import { useCountUp } from '@/hooks/use-count-up';
+import { durations, easings, springs } from '@/lib/motion';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+const DIAL_SIZE = 132;
+const RING_STROKE = 4;
+const RING_RADIUS = (DIAL_SIZE - RING_STROKE) / 2 - 3;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /** The astrology API's narrative report, when present in the raw compatibility payload. */
 export function getMatchReport(compatibility?: Pick<CompatibilityResult, 'raw'>): string | undefined {
@@ -27,7 +46,10 @@ type CompatibilityHeroProps = {
   label?: string;
 };
 
-/** Two avatars joined by an orbit, with the overall score in the middle. */
+/**
+ * Two avatars joined by an orbit, with the overall score in the middle. On mount the avatars
+ * drift in, the score counts up and a gold ring fills to the score.
+ */
 export function CompatibilityHero({
   score,
   viewerName,
@@ -36,14 +58,69 @@ export function CompatibilityHero({
   partnerPhotoUri,
   label = 'Kundli match',
 }: CompatibilityHeroProps) {
+  const safeScore = Math.max(0, Math.min(100, Math.round(score || 0)));
+  const displayed = useCountUp(safeScore, { delay: 150 });
+  const fill = useSharedValue(0);
+  const arrival = useSharedValue(0);
+
+  useEffect(() => {
+    arrival.value = withSpring(1, springs.settle);
+    fill.value = withDelay(150, withTiming(safeScore / 100, { duration: durations.reveal, easing: easings.out }));
+  }, [arrival, fill, safeScore]);
+
+  const ringProps = useAnimatedProps(() => ({
+    strokeDashoffset: RING_CIRCUMFERENCE * (1 - fill.value),
+  }));
+  const leftStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(arrival.value, 1),
+    transform: [{ translateX: (1 - arrival.value) * -24 }],
+  }));
+  const rightStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(arrival.value, 1),
+    transform: [{ translateX: (1 - arrival.value) * 24 }],
+  }));
+  const dialStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 0.9 + 0.1 * arrival.value }],
+  }));
+
   return (
     <View style={styles.hero}>
       <View style={styles.orbit} />
       <View style={styles.heroRow}>
-        <Avatar uri={viewerPhotoUri} name={viewerName} size={76} ring={colors.accent} />
-        <View style={styles.dial}>
+        <Animated.View style={leftStyle}>
+          <Avatar uri={viewerPhotoUri} name={viewerName} size={76} ring={colors.accent} />
+        </Animated.View>
+        <Animated.View style={[styles.dial, dialStyle]} accessible accessibilityLabel={`${safeScore}% ${label}`}>
+          <Svg width={DIAL_SIZE} height={DIAL_SIZE} style={StyleSheet.absoluteFill}>
+            <Defs>
+              <SvgGradient id="dialRing" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor={palette.gold300} />
+                <Stop offset="1" stopColor={palette.gold600} />
+              </SvgGradient>
+            </Defs>
+            <Circle
+              cx={DIAL_SIZE / 2}
+              cy={DIAL_SIZE / 2}
+              r={RING_RADIUS}
+              stroke={colors.border}
+              strokeWidth={RING_STROKE}
+              fill="none"
+            />
+            <AnimatedCircle
+              cx={DIAL_SIZE / 2}
+              cy={DIAL_SIZE / 2}
+              r={RING_RADIUS}
+              stroke="url(#dialRing)"
+              strokeWidth={RING_STROKE}
+              strokeLinecap="round"
+              strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+              fill="none"
+              transform={`rotate(-90 ${DIAL_SIZE / 2} ${DIAL_SIZE / 2})`}
+              animatedProps={ringProps}
+            />
+          </Svg>
           <AppText color={colors.accent} style={styles.dialScore}>
-            {score}
+            {displayed}
             <AppText color={colors.accent} style={styles.dialPercent}>
               %
             </AppText>
@@ -51,8 +128,10 @@ export function CompatibilityHero({
           <AppText variant="overline" color={colors.textMuted}>
             {label}
           </AppText>
-        </View>
-        <Avatar uri={partnerPhotoUri} name={partnerName} size={76} ring={colors.like} />
+        </Animated.View>
+        <Animated.View style={rightStyle}>
+          <Avatar uri={partnerPhotoUri} name={partnerName} size={76} ring={colors.like} />
+        </Animated.View>
       </View>
     </View>
   );
@@ -113,30 +192,44 @@ export function CompatibilityReport({ summary, yogas, doshas, breakdown }: Compa
       {breakdown.length > 0 ? (
         <Card style={styles.section}>
           <AppText variant="title3">Guna breakdown</AppText>
-          {breakdown.map((row) => {
-            const value = Math.max(0, Math.min(100, row.value));
-
-            return (
-              <View key={row.label} style={styles.scoreRow}>
-                <View style={styles.scoreRowHeader}>
-                  <AppText variant="subhead">{row.label}</AppText>
-                  <AppText variant="subhead" color={colors.accent}>
-                    {row.value}%
-                  </AppText>
-                </View>
-                <View style={styles.track}>
-                  <LinearGradient
-                    colors={[palette.gold600, palette.gold300]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.fill, { width: `${value}%` }]}
-                  />
-                </View>
+          {breakdown.map((row, index) => (
+            <View key={row.label} style={styles.scoreRow}>
+              <View style={styles.scoreRowHeader}>
+                <AppText variant="subhead">{row.label}</AppText>
+                <AppText variant="subhead" color={colors.accent}>
+                  {row.value}%
+                </AppText>
               </View>
-            );
-          })}
+              <ScoreBar value={row.value} delay={300 + index * 90} />
+            </View>
+          ))}
         </Card>
       ) : null}
+    </View>
+  );
+}
+
+/** Gold progress bar that grows to its value after `delay` ms. */
+function ScoreBar({ value, delay }: { value: number; delay: number }) {
+  const target = Math.max(0, Math.min(100, value));
+  const width = useSharedValue(0);
+
+  useEffect(() => {
+    width.value = withDelay(delay, withTiming(target, { duration: durations.slow * 2, easing: easings.out }));
+  }, [delay, target, width]);
+
+  const fillStyle = useAnimatedStyle(() => ({ width: `${width.value}%` }));
+
+  return (
+    <View style={styles.track}>
+      <Animated.View style={[styles.fill, fillStyle]}>
+        <LinearGradient
+          colors={[palette.gold600, palette.gold300]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
     </View>
   );
 }
@@ -186,13 +279,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   dial: {
-    width: 132,
-    height: 132,
-    borderRadius: 66,
+    width: DIAL_SIZE,
+    height: DIAL_SIZE,
+    borderRadius: DIAL_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.accentLine,
     backgroundColor: colors.surface,
   },
   dialScore: {
@@ -258,5 +349,6 @@ const styles = StyleSheet.create({
   fill: {
     height: '100%',
     borderRadius: radius.pill,
+    overflow: 'hidden',
   },
 });

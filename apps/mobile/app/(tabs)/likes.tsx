@@ -1,7 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
@@ -14,10 +15,14 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Screen } from '@/components/ui/screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { SegmentedControl } from '@/components/ui/segmented-control';
+import { LikesSkeleton } from '@/components/ui/skeleton';
 import { TextField } from '@/components/ui/text-field';
 import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { type LikeItem } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { useRefreshControl } from '@/hooks/use-refresh-control';
+import { haptics } from '@/lib/haptics';
+import { listItemEntering, listItemLayout } from '@/lib/list-motion';
 
 type ScoreModalTab = 'score' | 'profile';
 
@@ -28,7 +33,8 @@ const SCORE_TABS = [
 
 export default function LikesScreen() {
     const router = useRouter();
-    const { likes, profile, replyToLike, dismissLike } = useAppData();
+    const { likes, isLoadingLikes, profile, refreshLikes, replyToLike, dismissLike } = useAppData();
+    const refreshControl = useRefreshControl(refreshLikes);
     const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
     const [sendingReplyIds, setSendingReplyIds] = useState<Record<string, boolean>>({});
 
@@ -47,6 +53,7 @@ export default function LikesScreen() {
         }
 
         setSendingReplyIds((ids) => ({ ...ids, [likeId]: true }));
+        const like = likes.find((item) => item.id === likeId);
 
         try {
             const chatId = await replyToLike(likeId, reply);
@@ -55,7 +62,23 @@ export default function LikesScreen() {
                 delete nextDrafts[likeId];
                 return nextDrafts;
             });
-            router.push(chatId ? `/chat/${chatId}` : '/(tabs)/chats');
+            if (chatId && like) {
+                // Replying turns the like into a match: celebrate, then the match screen opens the chat.
+                router.push({
+                    pathname: '/match',
+                    params: {
+                        chatId,
+                        name: like.fromName,
+                        avatarUrl: like.avatarUrl,
+                        score: String(like.compatibility.overallScore ?? ''),
+                    },
+                });
+            } else {
+                router.push(chatId ? `/chat/${chatId}` : '/(tabs)/chats');
+            }
+        } catch (error) {
+            haptics.error();
+            Alert.alert('Reply not sent', error instanceof Error ? error.message : 'Please try again.');
         } finally {
             setSendingReplyIds((ids) => {
                 const nextIds = { ...ids };
@@ -76,31 +99,38 @@ export default function LikesScreen() {
                         : undefined
                 }
             />
-            {likes.length > 0 ? (
+            {likes.length === 0 && isLoadingLikes ? (
+                <LikesSkeleton />
+            ) : likes.length > 0 ? (
                 <ScrollView
                     contentContainerStyle={styles.list}
                     keyboardShouldPersistTaps="handled"
+                    refreshControl={refreshControl}
                     showsVerticalScrollIndicator={false}>
-                    {likes.map((like) => (
-                        <LikeCard
-                            key={like.id}
-                            like={like}
-                            reply={replyDrafts[like.id] ?? ''}
-                            isSendingReply={Boolean(sendingReplyIds[like.id])}
-                            viewerName={profile.name}
-                            viewerPhotoUri={profile.photoUris[0]}
-                            onChangeReply={(value) => updateReply(like.id, value)}
-                            onDismiss={() => dismissLike(like.id)}
-                            onReply={() => sendReply(like.id)}
-                        />
+                    {likes.map((like, index) => (
+                        // No exit animation: the card owns the open score modal, which must close with it.
+                        <Animated.View key={like.id} entering={listItemEntering(index)} layout={listItemLayout}>
+                            <LikeCard
+                                like={like}
+                                reply={replyDrafts[like.id] ?? ''}
+                                isSendingReply={Boolean(sendingReplyIds[like.id])}
+                                viewerName={profile.name}
+                                viewerPhotoUri={profile.photoUris[0]}
+                                onChangeReply={(value) => updateReply(like.id, value)}
+                                onDismiss={() => dismissLike(like.id)}
+                                onReply={() => sendReply(like.id)}
+                            />
+                        </Animated.View>
                     ))}
                 </ScrollView>
             ) : (
-                <EmptyState
-                    icon="heart-outline"
-                    title="No likes yet"
-                    message="When someone likes you, their opening message lands here before it moves to Chats."
-                />
+                <ScrollView contentContainerStyle={styles.emptyContent} refreshControl={refreshControl}>
+                    <EmptyState
+                        icon="heart-outline"
+                        title="No likes yet"
+                        message="When someone likes you, their opening message lands here before it moves to Chats."
+                    />
+                </ScrollView>
             )}
         </Screen>
     );
@@ -364,6 +394,9 @@ function buildLikeProfile(like: LikeItem) {
 const styles = StyleSheet.create({
     flex: {
         flex: 1,
+    },
+    emptyContent: {
+        flexGrow: 1,
     },
     list: {
         paddingHorizontal: gutter,

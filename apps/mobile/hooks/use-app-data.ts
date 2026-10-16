@@ -33,7 +33,6 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     discoverQuery.error,
     likesQuery.error,
     chatsQuery.error,
-    account.activity.error,
     account.credits.error,
     account.settings.error,
     account.subscription.error,
@@ -58,13 +57,15 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     hasCompletedOnboarding: Boolean(profileQuery.data?._onboardingCompleted),
     isServiceBusy,
     serviceError,
+    isLoadingDiscover: discoverQuery.isPending,
+    isLoadingLikes: likesQuery.isPending,
+    isLoadingChats: chatsQuery.isPending,
     profile,
     discoverProfiles: discoverQuery.data ?? [],
     skippedProfileIds: [],
     likedProfileIds: [],
     likes: likesQuery.data ?? [],
     chats: chatsQuery.data ?? [],
-    activity: account.activity.data ?? [],
     creditsBalance: account.credits.data?.balance ?? 0,
     creditHistory: account.credits.data?.history ?? [],
     subscription: account.subscription.data ?? DEFAULT_SUBSCRIPTION,
@@ -126,7 +127,9 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       mutations.purchase.mutateAsync({ type: 'subscription', productId: planId, customer: { name: profile.name, email: profile.email, phone: profile.phoneNumber } }),
     // Purchases are recorded server-side, so restoring means re-reading the account.
     restorePurchases: async () => {
-      await Promise.all([account.subscription.refetch(), account.credits.refetch()]);
+      const results = await Promise.all([account.subscription.refetch(), account.credits.refetch()]);
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
     },
     updateNotifications: async (updates) =>
       mutations.updateSettings.mutateAsync({ notifications: { ...settings.notifications, ...updates }, privacy: settings.privacy }),
@@ -147,6 +150,10 @@ export type AppData = {
   isAuthenticated: boolean;
   hasCompletedOnboarding: boolean;
   isServiceBusy: boolean;
+  /** First load of a list is still in flight (no cached data yet); used for skeletons. */
+  isLoadingDiscover: boolean;
+  isLoadingLikes: boolean;
+  isLoadingChats: boolean;
   serviceError?: string;
   profile: UserProfile;
   discoverProfiles: ReturnType<typeof useDiscoverProfilesQuery>['data'] extends infer D ? NonNullable<D> : never;
@@ -154,7 +161,6 @@ export type AppData = {
   likedProfileIds: string[];
   likes: NonNullable<ReturnType<typeof useIncomingLikesQuery>['data']>;
   chats: NonNullable<ReturnType<typeof useChatsQuery>['data']>;
-  activity: NonNullable<ReturnType<typeof useAccountQueries>['activity']['data']>;
   creditsBalance: number;
   creditHistory: NonNullable<ReturnType<typeof useAccountQueries>['credits']['data']>['history'];
   subscription: NonNullable<ReturnType<typeof useAccountQueries>['subscription']['data']>;

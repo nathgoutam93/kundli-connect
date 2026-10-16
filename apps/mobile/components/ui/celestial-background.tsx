@@ -1,8 +1,19 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { memo, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { memo, useEffect, useMemo } from 'react';
+import { StyleSheet, View, type ViewStyle } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { backgroundGradient, palette } from '@/constants/theme';
+import { useScreenFocused } from '@/hooks/use-screen-focused';
 
 type CelestialBackgroundProps = {
   /** Number of stars to scatter. Use fewer on content-heavy screens. */
@@ -22,7 +33,7 @@ function mulberry32(seed: number) {
   };
 }
 
-/** Midnight gradient with a sparse, static starfield. Sits behind screen content. */
+/** Midnight gradient with a sparse starfield that gently twinkles. Sits behind screen content. */
 export const CelestialBackground = memo(function CelestialBackground({
   stars = 36,
   seed = 7,
@@ -39,33 +50,64 @@ export const CelestialBackground = memo(function CelestialBackground({
         size,
         opacity: 0.25 + random() * 0.55,
         gold: random() < 0.15,
+        // About a third of the sky twinkles, each star on its own slow rhythm.
+        twinkle: random() < 0.35 ? { delay: random() * 4000, duration: 1600 + random() * 2400 } : null,
       };
     });
   }, [seed, stars]);
+  const reduceMotion = useReducedMotion();
+  // Tab screens stay mounted when hidden; only the visible one twinkles.
+  const isFocused = useScreenFocused();
+  const shouldTwinkle = !reduceMotion && isFocused;
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient colors={backgroundGradient} locations={[0, 0.5, 1]} style={StyleSheet.absoluteFill} />
-      {points.map((star) => (
-        <View
-          key={star.key}
-          style={[
-            styles.star,
-            {
-              left: star.left,
-              top: star.top,
-              width: star.size,
-              height: star.size,
-              borderRadius: star.size,
-              opacity: star.opacity,
-              backgroundColor: star.gold ? palette.gold300 : palette.moon100,
-            },
-          ]}
-        />
-      ))}
+      {points.map((star) => {
+        const style: ViewStyle = {
+          left: star.left,
+          top: star.top,
+          width: star.size,
+          height: star.size,
+          borderRadius: star.size,
+          opacity: star.opacity,
+          backgroundColor: star.gold ? palette.gold300 : palette.moon100,
+        };
+        return star.twinkle && shouldTwinkle ? (
+          <TwinklingStar key={star.key} style={style} baseOpacity={star.opacity} {...star.twinkle} />
+        ) : (
+          <View key={star.key} style={[styles.star, style]} />
+        );
+      })}
     </View>
   );
 });
+
+function TwinklingStar({
+  style,
+  baseOpacity,
+  delay,
+  duration,
+}: {
+  style: ViewStyle;
+  baseOpacity: number;
+  delay: number;
+  duration: number;
+}) {
+  const glow = useSharedValue(baseOpacity);
+
+  useEffect(() => {
+    glow.value = withDelay(
+      delay,
+      withRepeat(withTiming(Math.min(baseOpacity + 0.45, 1), { duration, easing: Easing.inOut(Easing.sin) }), -1, true)
+    );
+    return () => cancelAnimation(glow);
+  }, [baseOpacity, delay, duration, glow]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
+
+  return <Animated.View style={[styles.star, style, animatedStyle]} />;
+}
 
 const styles = StyleSheet.create({
   star: {

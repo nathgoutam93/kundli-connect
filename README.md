@@ -2,6 +2,8 @@
 
 Monorepo for the Kundali Konnect mobile app, Supabase backend, and future admin dashboard.
 
+Going live? Work through [`docs/production-checklist.md`](docs/production-checklist.md).
+
 ## Structure
 
 ```text

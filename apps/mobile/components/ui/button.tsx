@@ -2,7 +2,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   View,
   type PressableProps,
@@ -12,6 +11,9 @@ import {
 
 import { AppText } from '@/components/ui/app-text';
 import { colors, palette, radius, space } from '@/constants/theme';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { type HapticKind } from '@/lib/haptics';
+import { AnimatedPressable } from '@/lib/motion';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -29,6 +31,8 @@ type ButtonProps = Omit<PressableProps, 'style' | 'children'> & {
   style?: StyleProp<ViewStyle>;
   /** Optional content rendered before the label, e.g. a brand logo. */
   leading?: ReactNode;
+  /** Haptic on press. Defaults to a light tap; `false` for none. */
+  haptic?: HapticKind | false;
 };
 
 const VARIANTS: Record<ButtonVariant, { bg: string; pressed: string; fg: string; border: string }> = {
@@ -59,6 +63,10 @@ export function Button({
   disabled,
   style,
   leading,
+  haptic = 'tap',
+  onPress,
+  onPressIn,
+  onPressOut,
   ...rest
 }: ButtonProps) {
   const dims = SIZES[size];
@@ -66,25 +74,35 @@ export function Button({
   // Loading keeps the brand tone; a plain disabled state goes neutral rather than dimming the color.
   const tone = disabled && !loading && variant !== 'ghost' ? DISABLED : VARIANTS[variant];
   const iconNode = icon ? <Ionicons name={icon} size={dims.icon} color={tone.fg} /> : null;
+  const { animatedStyle, pressHandlers } = usePressAnimation({
+    pressedScale: size === 'sm' ? 0.95 : 0.97,
+    backgroundColor: tone.bg,
+    pressedBackgroundColor: tone.pressed,
+    haptic,
+    onPress,
+    onPressIn,
+    onPressOut,
+  });
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(isDisabled), busy: loading }}
       disabled={isDisabled}
-      style={({ pressed }) => [
+      style={[
         styles.base,
         {
           minHeight: dims.height,
           paddingHorizontal: dims.paddingX,
-          backgroundColor: pressed ? tone.pressed : tone.bg,
+          backgroundColor: tone.bg,
           borderColor: tone.border,
         },
         fullWidth ? styles.fullWidth : styles.inline,
         disabled && variant === 'ghost' && styles.disabled,
-        pressed && styles.pressed,
         style,
+        animatedStyle,
       ]}
+      {...pressHandlers}
       {...rest}>
       {loading ? (
         <ActivityIndicator color={tone.fg} />
@@ -98,7 +116,7 @@ export function Button({
           {iconPosition === 'trailing' ? iconNode : null}
         </View>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -119,9 +137,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.xs,
-  },
-  pressed: {
-    transform: [{ scale: 0.985 }],
   },
   disabled: {
     opacity: 0.4,

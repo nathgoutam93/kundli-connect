@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Children, Fragment, type ReactNode } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import { SwitchRow } from '@/components/ui/app-switch';
 import { AppText } from '@/components/ui/app-text';
@@ -12,6 +12,8 @@ import { Screen } from '@/components/ui/screen';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { usePressAnimation } from '@/hooks/use-press-animation';
+import { AnimatedPressable } from '@/lib/motion';
 
 export default function SettingsScreen() {
   const {
@@ -102,10 +104,7 @@ export default function SettingsScreen() {
         </SettingsSection>
 
         <SettingsSection title="Billing">
-          <Pressable
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-            onPress={() => router.push('/subscriptions')}>
+          <LinkRow onPress={() => router.push('/subscriptions')} accessibilityLabel="Subscription">
             <View style={styles.linkIcon}>
               <Ionicons name="diamond-outline" size={18} color={colors.accent} />
             </View>
@@ -116,7 +115,7 @@ export default function SettingsScreen() {
               </AppText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-          </Pressable>
+          </LinkRow>
         </SettingsSection>
 
         <Button
@@ -149,6 +148,23 @@ function SettingsSection({ children, title }: { children: ReactNode; title: stri
         ))}
       </View>
     </View>
+  );
+}
+
+/** Navigation row inside a settings card: subtle press spring, no haptic (it only navigates). */
+function LinkRow({ children, onPress, accessibilityLabel }: { children: ReactNode; onPress: () => void; accessibilityLabel: string }) {
+  const { animatedStyle, pressHandlers } = usePressAnimation({
+    pressedScale: 0.98,
+    backgroundColor: 'rgba(33, 27, 64, 0)',
+    pressedBackgroundColor: colors.surfaceRaised,
+    haptic: false,
+    onPress,
+  });
+
+  return (
+    <AnimatedPressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} style={[styles.linkRow, animatedStyle]} {...pressHandlers}>
+      {children}
+    </AnimatedPressable>
   );
 }
 
@@ -191,6 +207,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
+    // Lets the pressed highlight extend slightly past the content without shifting it.
+    marginHorizontal: -space.xs,
+    paddingHorizontal: space.xs,
+    borderRadius: radius.sm,
   },
   linkIcon: {
     width: 34,
@@ -199,9 +219,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.accentSoft,
-  },
-  pressed: {
-    opacity: 0.75,
   },
   logout: {
     marginTop: space.sm,

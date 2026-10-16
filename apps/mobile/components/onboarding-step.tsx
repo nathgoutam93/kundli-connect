@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
-import { type ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/ui/app-text';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { Screen } from '@/components/ui/screen';
 import { colors, gutter, radius, space } from '@/constants/theme';
+import { durations, easings } from '@/lib/motion';
 
 /** Order of the onboarding flow; drives the progress bar. */
 export const ONBOARDING_STEPS = [
@@ -67,16 +69,24 @@ export function OnboardingStep({
   const insets = useSafeAreaInsets();
   const index = ONBOARDING_STEPS.indexOf(step);
   const progress = (index + 1) / ONBOARDING_STEPS.length;
+  // Each step is its own screen, so the bar grows from where the previous step left it.
+  const fill = useSharedValue(index / ONBOARDING_STEPS.length);
+
+  useEffect(() => {
+    fill.value = withDelay(150, withTiming(progress, { duration: durations.slow * 2, easing: easings.out }));
+  }, [fill, progress]);
+
+  const fillStyle = useAnimatedStyle(() => ({ width: `${fill.value * 100}%` }));
 
   const heading = (
-    <View style={styles.heading}>
+    <Animated.View entering={FadeInDown.duration(420)} style={styles.heading}>
       <AppText variant="title1">{title}</AppText>
       {subtitle ? (
         <AppText variant="callout" color={colors.textMuted}>
           {subtitle}
         </AppText>
       ) : null}
-    </View>
+    </Animated.View>
   );
 
   return (
@@ -92,7 +102,7 @@ export function OnboardingStep({
             style={styles.track}
             accessibilityRole="progressbar"
             accessibilityValue={{ min: 1, max: ONBOARDING_STEPS.length, now: index + 1 }}>
-            <View style={[styles.fill, { width: `${progress * 100}%` }]} />
+            <Animated.View style={[styles.fill, fillStyle]} />
           </View>
           <AppText variant="caption" color={colors.textFaint} style={styles.counter}>
             {index + 1}/{ONBOARDING_STEPS.length}

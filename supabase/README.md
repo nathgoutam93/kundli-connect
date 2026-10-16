@@ -58,6 +58,10 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
 - **Server-controlled columns.** Direct API writes cannot change a profile's phone,
   verification status, Kundli status or discoverability (`protect_profile_columns` trigger);
   discoverability follows `user_settings`.
+- **Birth details are locked after onboarding.** Once `onboarding_completed` is true, direct
+  API writes keep the stored birth date, time, place, coordinates and timezone (and onboarding
+  can't be reset). The Kundli and every match score depend on them. Support can still correct
+  them with the service role.
 - **No direct writes to server-owned tables.** Likes are created only by `create-like` (which
   charges a credit and needs a match score); recipients may only move a pending like to
   `dismissed`. Messages are written only by `send_chat_message` / `reply_to_like` (max 2000
@@ -69,6 +73,15 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
 - **Signed-out requests** have no access to tables or functions in `public`.
 - **Edge Functions** validate ids and message lengths, and only allow scoring or liking
   profiles that are discoverable or already connected.
+
+## Kundli charts
+
+`generate-kundli` calls AstrologyAPI for the details (`astro_details`), the chart images
+(`horo_chart_image/:chartId`) and the chart layout (`horo_chart/:chartId`), all in parallel. The
+layout is normalised into `kundlis.chart_houses` (12 houses from the ascendant, with the sign and
+planets in each) and the app draws the chart from it. Kundlis generated before this get their
+layout backfilled the first time the chart screen asks. If the layout is unavailable the app
+shows the chart images, and otherwise an honest "still being prepared" state with a retry.
 
 ## Payments
 
