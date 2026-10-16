@@ -4,20 +4,23 @@ import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleShee
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActionSheet } from '@/components/action-sheet';
 import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
 import { ProfileView } from '@/components/profile-view';
+import { ReportSheet } from '@/components/report-sheet';
 import { AppText } from '@/components/ui/app-text';
 import { Avatar } from '@/components/ui/avatar';
-import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { Screen } from '@/components/ui/screen';
 import { SegmentedControl } from '@/components/ui/segmented-control';
+import { toast } from '@/components/ui/toast';
 import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { type ChatPreview, type CompatibilityResult, type DiscoverProfile, type LikeItem } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 import { useChatMessagesInfiniteQuery } from '@/hooks/use-domain-data';
+import { useSafetyActions } from '@/hooks/use-safety-actions';
 import { isPendingMessage } from '@/lib/chat-cache';
 import { haptics } from '@/lib/haptics';
 import { springs } from '@/lib/motion';
@@ -30,7 +33,6 @@ const THREAD_TABS = [
     { value: 'profile', label: 'Profile' },
 ] as const;
 
-const CHAT_ACTIONS = ['We met', 'Hide', 'Unmatch'] as const;
 
 type ChatThread = {
     id: string;
@@ -154,6 +156,8 @@ export default function ChatThreadScreen() {
     const insets = useSafeAreaInsets();
     const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isReportOpen, setIsReportOpen] = useState(false);
+    const safety = useSafetyActions();
     const [draft, setDraft] = useState('');
     const {
         chats,
@@ -201,6 +205,65 @@ export default function ChatThreadScreen() {
             void markChatReadRef.current(chatId);
         }
     }, [chatId, latestIncomingMessageId]);
+
+    const partnerId = chat?.participantId;
+
+    async function toggleHidden() {
+        if (!chatId) {
+            return;
+        }
+        const hide = !chat?.hidden;
+        try {
+            await safety.setHidden(chatId, hide);
+            toast.info(hide ? 'Moved to Hidden in your chats.' : 'Back in Conversations.', hide ? 'Chat hidden' : 'Chat restored');
+        } catch (error) {
+            Alert.alert('Something went wrong', error instanceof Error ? error.message : 'Please try again.');
+        }
+    }
+
+    function confirmUnmatch() {
+        Alert.alert(`Unmatch ${thread.name}?`, 'This ends the chat for both of you and can’t be undone.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Unmatch',
+                style: 'destructive',
+                onPress: async () => {
+                    if (!chatId) return;
+                    try {
+                        await safety.unmatch(chatId);
+                        toast.info(`You and ${thread.name} are no longer matched.`, 'Unmatched');
+                        router.back();
+                    } catch (error) {
+                        Alert.alert('Could not unmatch', error instanceof Error ? error.message : 'Please try again.');
+                    }
+                },
+            },
+        ]);
+    }
+
+    function confirmBlock() {
+        if (!partnerId) return;
+        Alert.alert(
+            `Block ${thread.name}?`,
+            'You won’t see each other anywhere in the app, and this chat ends for both of you. You can unblock them later in Settings.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Block',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await safety.block(partnerId);
+                            toast.info(`You won’t see ${thread.name} again.`, 'Blocked');
+                            router.back();
+                        } catch (error) {
+                            Alert.alert('Could not block', error instanceof Error ? error.message : 'Please try again.');
+                        }
+                    },
+                },
+            ]
+        );
+    }
 
     async function handleSend() {
         const text = draft.trim();
@@ -287,26 +350,33 @@ export default function ChatThreadScreen() {
                 ) : null}
             </KeyboardAvoidingView>
 
-            <BottomSheet visible={isMenuOpen} onClose={() => setIsMenuOpen(false)}>
-                <View style={styles.actionList}>
-                    {CHAT_ACTIONS.map((action) => (
-                        <Pressable
-                            key={action}
-                            accessibilityRole="button"
-                            style={({ pressed }) => [styles.actionItem, pressed && styles.actionItemPressed]}>
-                            <AppText variant="bodyStrong">{action}</AppText>
-                        </Pressable>
-                    ))}
-                    <Pressable
-                        accessibilityRole="button"
-                        style={({ pressed }) => [styles.actionItem, pressed && styles.actionItemPressed]}>
-                        <AppText variant="bodyStrong" color={colors.danger}>
-                            Report
-                        </AppText>
-                    </Pressable>
-                </View>
-                <Button label="Cancel" variant="secondary" onPress={() => setIsMenuOpen(false)} />
-            </BottomSheet>
+            <ActionSheet
+                visible={isMenuOpen}
+                onClose={() => setIsMenuOpen(false)}
+                actions={[
+                    {
+                        label: chat?.hidden ? 'Move back to Conversations' : 'Hide chat',
+                        icon: chat?.hidden ? 'eye-outline' : 'eye-off-outline',
+                        onPress: toggleHidden,
+                    },
+                    { label: `Unmatch ${thread.name}`, icon: 'heart-dislike-outline', onPress: confirmUnmatch },
+                    { label: `Block ${thread.name}`, icon: 'ban-outline', tone: 'danger', onPress: confirmBlock },
+                    { label: `Report ${thread.name}`, icon: 'flag-outline', tone: 'danger', onPress: () => setIsReportOpen(true) },
+                ]}
+            />
+            {partnerId ? (
+                <ReportSheet
+                    visible={isReportOpen}
+                    onClose={() => setIsReportOpen(false)}
+                    userId={partnerId}
+                    name={thread.name}
+                    onReported={(blocked) => {
+                        if (blocked) {
+                            router.back();
+                        }
+                    }}
+                />
+            ) : null}
         </Screen>
     );
 }
@@ -563,21 +633,5 @@ const styles = StyleSheet.create({
         paddingTop: space.sm,
         paddingBottom: space.xxl,
         gap: space.md,
-    },
-    actionList: {
-        borderRadius: radius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        overflow: 'hidden',
-    },
-    actionItem: {
-        minHeight: 54,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.border,
-    },
-    actionItemPressed: {
-        backgroundColor: colors.surfaceRaised,
     },
 });

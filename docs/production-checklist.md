@@ -138,14 +138,15 @@ Push goes through the Expo push service (`exp.host`), which needs platform crede
 
 ## 7. Features the stores will ask for
 
-These are missing from the app today and are likely to block review.
+These are likely to block review if missing.
 
-- [ ] **Account deletion in the app.** Both Apple (5.1.1(v)) and Google Play require users to be
-      able to delete their account from inside the app, and Google also needs a web link for it.
-      Deletion must remove the auth user, profile, photos, Kundli images, messages and push tokens.
-- [ ] **Report and block users.** Dating/chat apps with user content need a way to report and
-      block other users, plus a way for you to act on reports (Apple guideline 1.2). The chat
-      menu's *Report*, *Hide*, *Unmatch* and *We met* buttons currently do nothing.
+- [x] **Account deletion in the app.** Settings → Delete account (typed confirmation). The
+      `delete-account` Edge Function removes photos, Kundli images, chats and the auth user;
+      everything else cascades. Google Play still needs a **web** deletion link (see section 8).
+- [x] **Report and block users.** Report and block from a profile in Discover, the like preview
+      and the chat menu; unblock under Settings → Blocked people. Unmatch and Hide work too.
+- [ ] **Act on reports (Apple 1.2).** Decide who reviews `user_reports` and how quickly (aim for
+      within 24 hours), and follow the moderation steps in `supabase/README.md`.
 - [ ] **Privacy policy** URL (required by both stores, Google OAuth and Meta) and **terms of
       service**, linked from the app (welcome screen and settings).
 - [ ] **Age gate.** The birth date picker allows any date up to today; onboarding (and ideally
@@ -161,7 +162,10 @@ These are missing from the app today and are likely to block review.
 - [ ] Content rating questionnaire; target audience 18+; declare the app as a dating app.
 - [ ] Closed testing track first (new personal developer accounts need 12+ testers for 14 days
       before production access).
-- [ ] Account deletion URL.
+- [ ] Account deletion URL: a web page (or form) where someone can request deletion without the
+      app, listing what's deleted and kept. Requests can be actioned by deleting the user from
+      Supabase → Authentication (the same cascade as in-app deletion; also clear their Storage
+      folders `profile-photos/<id>/` and `kundli-charts/<id>/`).
 
 ### Apple App Store
 - [ ] Apple Developer Program membership.

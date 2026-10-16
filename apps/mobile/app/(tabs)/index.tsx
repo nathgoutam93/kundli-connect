@@ -15,8 +15,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActionSheet } from '@/components/action-sheet';
 import { CompatibilityHero, CompatibilityReport } from '@/components/compatibility-report';
 import { ProfileView } from '@/components/profile-view';
+import { ReportSheet } from '@/components/report-sheet';
 import { AppText } from '@/components/ui/app-text';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Button } from '@/components/ui/button';
@@ -29,6 +31,7 @@ import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, shadow, space } from '@/constants/theme';
 import { type CompatibilityResult, type DiscoverProfile } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { useSafetyActions } from '@/hooks/use-safety-actions';
 import { usePressAnimation } from '@/hooks/use-press-animation';
 import { haptics } from '@/lib/haptics';
 import { AnimatedPressable, easings, springs } from '@/lib/motion';
@@ -307,6 +310,29 @@ function RecommendationCard({
     const [openingMessage, setOpeningMessage] = useState('');
     const [isScoreOpen, setIsScoreOpen] = useState(false);
     const [isScoreLoading, setIsScoreLoading] = useState(false);
+    const [isSafetyOpen, setIsSafetyOpen] = useState(false);
+    const [isReportOpen, setIsReportOpen] = useState(false);
+    const safety = useSafetyActions();
+
+    function confirmBlock() {
+        Alert.alert(`Block ${profile.name}?`, 'You won’t see each other anywhere in the app. You can unblock them later in Settings.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Block',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await animateOut(-1);
+                        await safety.block(profile.id);
+                        toast.info(`You won’t see ${profile.name} again.`, 'Blocked');
+                    } catch (error) {
+                        departure.value = withSpring(0, springs.settle);
+                        Alert.alert('Could not block', error instanceof Error ? error.message : 'Please try again.');
+                    }
+                },
+            },
+        ]);
+    }
     const [compatibility, setCompatibility] = useState(profile.compatibility);
     const heroPhoto = profile.photos[0];
     const canSendLike = openingMessage.trim().length > 0;
@@ -358,7 +384,19 @@ function RecommendationCard({
                 <ScrollView
                     contentContainerStyle={[styles.cardContent, { paddingBottom: insets.bottom + 120 }]}
                     showsVerticalScrollIndicator={false}>
-                    <ProfileView profile={profile} />
+                    <ProfileView
+                        profile={profile}
+                        heroAccessory={
+                            <IconButton
+                                icon="ellipsis-horizontal"
+                                variant="glass"
+                                size={38}
+                                iconSize={18}
+                                accessibilityLabel={`More options for ${profile.name}`}
+                                onPress={() => setIsSafetyOpen(true)}
+                            />
+                        }
+                    />
                 </ScrollView>
             </Animated.View>
 
@@ -386,6 +424,26 @@ function RecommendationCard({
                     style={styles.dockButton}
                 />
             </View>
+
+            <ActionSheet
+                visible={isSafetyOpen}
+                onClose={() => setIsSafetyOpen(false)}
+                actions={[
+                    { label: `Report ${profile.name}`, icon: 'flag-outline', tone: 'danger', onPress: () => setIsReportOpen(true) },
+                    { label: `Block ${profile.name}`, icon: 'ban-outline', tone: 'danger', onPress: confirmBlock },
+                ]}
+            />
+            <ReportSheet
+                visible={isReportOpen}
+                onClose={() => setIsReportOpen(false)}
+                userId={profile.id}
+                name={profile.name}
+                onReported={(blocked) => {
+                    if (blocked) {
+                        void animateOut(-1);
+                    }
+                }}
+            />
 
             <BottomSheet
                 visible={isMessageOpen}

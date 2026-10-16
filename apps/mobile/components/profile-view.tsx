@@ -20,7 +20,7 @@ export type ProfileViewData = {
 
 type ProfileViewProps = {
   profile: ProfileViewData;
-  /** Rendered over the bottom-right of the hero photo, e.g. a score badge. */
+  /** Rendered over the top-right of the hero photo, e.g. a "more" button for report/block. */
   heroAccessory?: ReactNode;
 };
 
