@@ -12,6 +12,7 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
 import { purchaseProduct, type CheckoutCustomer, type ProductType } from '@/services/checkout';
+import { getLatestInsights } from '@/services/insights-service';
 import {
   dismissLike,
   getCreditAccount,
@@ -71,6 +72,17 @@ export function useKundliQuery() {
     enabled: Boolean(user),
     // Chart images use signed URLs; refetch before they expire rather than caching forever.
     staleTime: (KUNDLI_CHART_URL_TTL_SECONDS - 10 * 60) * 1000,
+  });
+}
+
+export function useInsightsQuery() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: queryKeys.insights(user?.id ?? 'anonymous'),
+    queryFn: getLatestInsights,
+    enabled: Boolean(user),
+    // Insights change once a week.
+    staleTime: 60 * 60 * 1000,
   });
 }
 

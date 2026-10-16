@@ -163,8 +163,6 @@ export type NotificationSettings = {
 };
 
 export type PrivacySettings = {
-  showDistance: boolean;
-  showOnlineStatus: boolean;
   profileDiscoverable: boolean;
 };
 
@@ -220,7 +218,5 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 };
 
 export const DEFAULT_PRIVACY: PrivacySettings = {
-  showDistance: true,
-  showOnlineStatus: true,
   profileDiscoverable: true,
 };

@@ -63,3 +63,6 @@ verify_jwt = false
 
 [functions.payment-webhook]
 verify_jwt = false
+
+[functions.send-astro-insights]
+verify_jwt = false

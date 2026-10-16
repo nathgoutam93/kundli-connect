@@ -156,6 +156,56 @@ there is no third-party astrology API, key or per-call cost.
 - `KUNDLI_ENGINE_VERSION` is part of each Kundli's `input_signature`; bump it after changing the
   calculation and every Kundli is rebuilt on its next request. Stored match scores are kept.
 
+## Astrology insights
+
+Once a week `send-astro-insights` works out what the transiting planets do relative to each
+person's natal Moon (`functions/_shared/astro/insights.ts`) and stores it in `astro_insights`,
+which the app shows as "This week in your chart" on the Kundli screen. People who turn on
+Settings → Notifications → Astrology reports (off by default) also get the most notable one as a
+push; tapping it opens the Kundli screen.
+
+What it looks for, most notable first: Saturn changing sign (including the start, phases and end
+of Sade Sati), Jupiter changing sign, Rahu/Ketu changing sign, Chandrashtama (the Moon in the 8th
+from the natal Moon), the Moon returning to the birth nakshatra, and the Sun's monthly sign change.
+A quiet week produces nothing, so it stays occasional. Days and times are written in India time
+(`INSIGHTS_TIME_ZONE`, default `Asia/Kolkata`). Rerunning in the same week stores and sends
+nothing new; insights older than 8 weeks are deleted on each run.
+
+Setup (once, after `supabase:db:push` and deploying the function):
+
+1. Pick a long random secret and give it to the function:
+   ```sh
+   supabase secrets set INSIGHTS_CRON_SECRET=$(openssl rand -hex 32)
+   ```
+2. Enable the `pg_cron` and `pg_net` extensions (Dashboard → Database → Extensions), then in the
+   SQL editor store the URL and the same secret in Vault and schedule the job for Monday 07:00 IST:
+   ```sql
+   select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/send-astro-insights', 'insights_url');
+   select vault.create_secret('<the INSIGHTS_CRON_SECRET value>', 'insights_cron_secret');
+
+   select cron.schedule('weekly-astro-insights', '30 1 * * 1', $$
+     select net.http_post(
+       url := (select decrypted_secret from vault.decrypted_secrets where name = 'insights_url'),
+       headers := jsonb_build_object(
+         'Content-Type', 'application/json',
+         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'insights_cron_secret')
+       ),
+       body := '{}'::jsonb,
+       timeout_milliseconds := 120000
+     );
+   $$);
+   ```
+3. To try it straight away, call the function by hand:
+   ```sh
+   curl -X POST https://<project-ref>.supabase.co/functions/v1/send-astro-insights \
+     -H "Authorization: Bearer <the secret>" -H "Content-Type: application/json" -d '{}'
+   ```
+   It returns how many profiles it saw, insights it stored and pushes it sent.
+
+One run handles a few thousand people comfortably (the transits are computed once; each person
+is a lookup plus a push). Well beyond that, split the run into pages before the Edge Function
+time limit becomes a concern.
+
 ## Payments
 
 Checkout is provider-agnostic:

@@ -123,6 +123,13 @@ export function siderealChart({ utc, latitude, longitude }: BirthMoment): Sidere
   };
 }
 
+/** Sidereal longitude of one graha at an instant (no ascendant or speed; for transit scans). */
+export function siderealLongitude(graha: Graha, utc: Date) {
+  const time = Astronomy.MakeTime(utc);
+  const ayanamsa = lahiriAyanamsa(time) + Astronomy.e_tilt(time).dpsi / 3600;
+  return normalise(tropicalLongitude(graha, time) - ayanamsa);
+}
+
 /** Converts a local civil birth date and time with a UTC offset (hours) to a UTC instant. */
 export function birthInstant(date: string, time: string, utcOffsetHours: number) {
   const [year, month, day] = date.split('-').map(Number);

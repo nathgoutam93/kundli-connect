@@ -57,8 +57,6 @@ export async function getSettings() {
       astrologyReports: data?.notify_astrology_reports ?? DEFAULT_NOTIFICATIONS.astrologyReports,
     },
     privacy: {
-      showDistance: data?.show_distance ?? DEFAULT_PRIVACY.showDistance,
-      showOnlineStatus: data?.show_online_status ?? DEFAULT_PRIVACY.showOnlineStatus,
       profileDiscoverable: data?.profile_discoverable ?? DEFAULT_PRIVACY.profileDiscoverable,
     },
   };
@@ -74,8 +72,6 @@ export async function updateSettings(notifications: NotificationSettings, privac
     notify_matches: notifications.matches,
     notify_messages: notifications.messages,
     notify_astrology_reports: notifications.astrologyReports,
-    show_distance: privacy.showDistance,
-    show_online_status: privacy.showOnlineStatus,
     profile_discoverable: privacy.profileDiscoverable,
     updated_at: new Date().toISOString(),
   });

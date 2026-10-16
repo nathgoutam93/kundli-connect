@@ -44,6 +44,8 @@ closes.
       ```sql
       drop function if exists public.spend_credit(text);
       ```
+- [ ] Schedule the weekly astrology insights job (`INSIGHTS_CRON_SECRET`, `pg_cron` + `pg_net`,
+      Vault, `cron.schedule`): steps in `supabase/README.md` → Astrology insights.
 - [ ] Smoke test on a real device: sign up, onboarding, Kundli generation, discover, like, reply,
       chat in real time between two phones, push notification arrives, test credit purchase.
 
