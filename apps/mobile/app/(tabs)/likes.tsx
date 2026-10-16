@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
 import { ProfileView } from '@/components/profile-view';
+import { ReportSheet } from '@/components/report-sheet';
 import { AppText } from '@/components/ui/app-text';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -254,6 +255,7 @@ function KundaliScorePreview({
     const yogas = like.compatibility.yogas ?? [];
     const doshas = like.compatibility.doshas ?? [];
     const [isReplyComposerOpen, setIsReplyComposerOpen] = useState(false);
+    const [isReportOpen, setIsReportOpen] = useState(false);
     const canReply = reply.trim().length > 0;
     const canPressReply = !isSendingReply && (!isReplyComposerOpen || canReply);
 
@@ -318,7 +320,27 @@ function KundaliScorePreview({
                     ) : (
                         <ProfileView profile={profile} />
                     )}
+                    <Button
+                        label={`Report ${likedName}`}
+                        icon="flag-outline"
+                        variant="ghost"
+                        size="sm"
+                        fullWidth={false}
+                        onPress={() => setIsReportOpen(true)}
+                        style={styles.reportLink}
+                    />
                 </ScrollView>
+                <ReportSheet
+                    visible={isReportOpen}
+                    onClose={() => setIsReportOpen(false)}
+                    userId={like.fromProfileId}
+                    name={likedName}
+                    onReported={(blocked) => {
+                        if (blocked) {
+                            onClose();
+                        }
+                    }}
+                />
 
                 <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space.md) + space.xs }]}>
                     {isReplyComposerOpen ? (
@@ -447,6 +469,9 @@ const styles = StyleSheet.create({
     },
     tabs: {
         width: 200,
+    },
+    reportLink: {
+        alignSelf: 'center',
     },
     scoreContent: {
         paddingHorizontal: gutter,

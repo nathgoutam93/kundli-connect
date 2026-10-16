@@ -118,6 +118,35 @@ export default function SettingsScreen() {
           </LinkRow>
         </SettingsSection>
 
+        <SettingsSection title="Safety & account">
+          <LinkRow onPress={() => router.push('/blocked-users')} accessibilityLabel="Blocked people">
+            <View style={styles.linkIcon}>
+              <Ionicons name="ban-outline" size={18} color={colors.accent} />
+            </View>
+            <View style={styles.accountCopy}>
+              <AppText variant="subhead">Blocked people</AppText>
+              <AppText variant="footnote" color={colors.textMuted}>
+                See and unblock people you’ve blocked
+              </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </LinkRow>
+          <LinkRow onPress={() => router.push('/delete-account')} accessibilityLabel="Delete account">
+            <View style={[styles.linkIcon, styles.linkIconDanger]}>
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+            </View>
+            <View style={styles.accountCopy}>
+              <AppText variant="subhead" color={colors.danger}>
+                Delete account
+              </AppText>
+              <AppText variant="footnote" color={colors.textMuted}>
+                Permanently remove your profile and data
+              </AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </LinkRow>
+        </SettingsSection>
+
         <Button
           label="Log out"
           variant="danger"
@@ -219,6 +248,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.accentSoft,
+  },
+  linkIconDanger: {
+    backgroundColor: colors.dangerSoft,
   },
   logout: {
     marginTop: space.sm,

@@ -79,6 +79,8 @@ export default function RootLayout() {
               <Stack.Screen name="edit-profile" />
               <Stack.Screen name="kundli" />
               <Stack.Screen name="subscriptions" />
+              <Stack.Screen name="blocked-users" />
+              <Stack.Screen name="delete-account" />
               <Stack.Screen name="auth/callback" />
             </Stack>
             <StatusBar style="light" />

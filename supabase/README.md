@@ -29,6 +29,7 @@ supabase functions deploy send-push-notification --no-verify-jwt
 supabase functions deploy create-checkout
 supabase functions deploy confirm-checkout
 supabase functions deploy payment-webhook --no-verify-jwt
+supabase functions deploy delete-account
 ```
 
 Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from the repo root.
@@ -73,6 +74,50 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
 - **Signed-out requests** have no access to tables or functions in `public`.
 - **Edge Functions** validate ids and message lengths, and only allow scoring or liking
   profiles that are discoverable or already connected.
+
+## Safety and moderation
+
+- **Block** (`block_user`): the two people disappear from each other's Discover, Likes and Chats
+  (enforced in `profile_cards`, which every screen reads), any chat between them is deleted and
+  pending likes are dismissed. `unblock_user` / `get_blocked_users` back the Settings list.
+- **Report** (`report_user`): stores the reason, optional details and an evidence snapshot (the
+  reported profile, the last 50 messages between them and any opening message) in
+  `user_reports`, then blocks unless the reporter turned that off. One report per pair per day;
+  at most 20 reports per reporter per day. Only the service role can read reports.
+- **Unmatch** (`unmatch_chat`) ends a chat for both; **Hide** (`set_chat_hidden`) is per user.
+- **Account deletion**: the `delete-account` Edge Function (requires `{ "confirm": "DELETE" }`)
+  removes the user's Storage folders, their chats (`delete_user_account_data`) and the auth user;
+  the rest cascades. Reports keep their evidence with the user references set to null.
+
+### Reviewing reports
+
+Open reports, newest first (SQL editor):
+
+```sql
+select r.id, r.created_at, r.reason, r.details, r.reported_user_id, p.display_name,
+       (select count(*) from public.user_reports x
+        where x.reported_user_id = r.reported_user_id and x.status = 'open') as open_reports,
+       r.evidence
+from public.user_reports r
+left join public.profiles p on p.id = r.reported_user_id
+where r.status = 'open'
+order by r.created_at desc;
+```
+
+Acting on a report:
+
+```sql
+-- Suspend: hidden from everyone, can't message or like (reversible: set back to null).
+update public.profiles set suspended_at = now() where id = '<reported user id>';
+
+-- Record the outcome.
+update public.user_reports
+set status = 'actioned', reviewed_at = now(), reviewer_note = 'Suspended for scam messages'
+where reported_user_id = '<reported user id>' and status = 'open';
+```
+
+For serious cases (e.g. a minor, threats), delete the account from Authentication → Users and
+clear its Storage folders. Use `status = 'dismissed'` for reports that need no action.
 
 ## Kundli charts
 

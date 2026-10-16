@@ -4,10 +4,11 @@ import { HttpError } from "../_shared/http.ts";
 
 const A = "aaaaaaaa-0000-4000-8000-000000000001", B = "bbbbbbbb-0000-4000-8000-000000000002";
 async function status(fn: () => unknown) { try { await fn(); return 200; } catch (e) { return e instanceof HttpError ? e.status : 500; } }
-function client(profile: unknown, connections: number, rpcData?: unknown) {
+function client(profile: unknown, connections: number, rpcData?: unknown, blocks = 0) {
   const calls: string[] = [];
   return { calls, c: {
-    from: (_table: string) => { const q: any = { select: () => q, eq: () => q, or: () => Promise.resolve({ count: connections, error: null }),
+    from: (table: string) => { const q: any = { select: () => q, eq: () => q,
+      or: () => Promise.resolve({ count: table === "user_blocks" ? blocks : connections, error: null }),
       maybeSingle: async () => ({ data: profile, error: null }) }; return q; },
     rpc: async (name: string) => { calls.push(name); return { data: rpcData, error: null }; },
   } as any };
@@ -27,6 +28,9 @@ Deno.test("interaction rules", async () => {
   if (await status(() => assertCanInteract(client(hidden, 1).c, A, B)) !== 200) throw new Error("connected blocked");
   if (await status(() => assertCanInteract(client(null, 0).c, A, B)) !== 404) throw new Error("missing allowed");
   if (await status(() => assertCanInteract(client(visible, 0).c, A, A)) !== 400) throw new Error("self allowed");
+  if (await status(() => assertCanInteract(client(visible, 1, undefined, 1).c, A, B)) !== 404) throw new Error("blocked pair allowed");
+  const suspended = { ...visible, suspended_at: "2026-10-01T00:00:00Z" };
+  if (await status(() => assertCanInteract(client(suspended, 1).c, A, B)) !== 404) throw new Error("suspended allowed");
 });
 
 Deno.test("credit spend and refund", async () => {
