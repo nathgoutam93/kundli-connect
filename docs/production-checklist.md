@@ -117,7 +117,10 @@ Push goes through the Expo push service (`exp.host`), which needs platform crede
 - [ ] **iOS:** let EAS create the APNs key on the first iOS build, or upload one.
 - [ ] `FCM_SERVER_KEY` in `.env.example` is the old legacy key and is not used by the code; you
       can ignore it.
-- [ ] Optional: turn on Expo push security (access token) and set it as an Edge Function secret.
+- [ ] Turn on **Enhanced push security** for the project on expo.dev, create an access token, and
+      `supabase secrets set EXPO_ACCESS_TOKEN=...`. The push sender includes it when set; with it
+      on, a push token that leaks from a device can't be used to message your users. Set the secret
+      *before* switching the setting on, or sends will be rejected.
 
 ## 6. Mobile app configuration
 
