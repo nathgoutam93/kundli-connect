@@ -45,7 +45,11 @@ Or run `npm run supabase:db:push` and `npm run supabase:functions:deploy` from t
   Kundlis and match scores, spend credits, and send push notifications in the background after
   responding. Multi-step writes (`reply_to_like`, `send_chat_message`) are single SQL
   transactions.
-- **Shared Edge Function code** lives in `functions/_shared/` (HTTP helpers, auth, push).
+- **Shared Edge Function code** lives in `functions/_shared/` (HTTP helpers, auth, push). Pushes
+  go through the Expo push service and carry `EXPO_ACCESS_TOKEN` when that secret is set (needed
+  once Enhanced push security is on for the Expo project). A push token re-registered by another
+  signed-in account moves to that account on purpose, so a shared, reinstalled or resold phone stops
+  receiving the previous owner's notifications.
 - **Realtime:** `messages`, `likes` and `chat_participants` are in the `supabase_realtime`
   publication. The app subscribes once per session (`hooks/use-realtime-sync.ts`); Realtime
   applies each subscriber's RLS policies.

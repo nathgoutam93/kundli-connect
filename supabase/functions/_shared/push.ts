@@ -33,6 +33,19 @@ const typeByDataType: Record<string, NotificationType> = {
   message: "messages",
 };
 
+/**
+ * With Expo "Enhanced push security" turned on for the project, Expo only accepts sends that carry
+ * this access token, so a push token that leaked from a device can't be used by anyone else.
+ */
+export function expoPushHeaders(accessToken = Deno.env.get("EXPO_ACCESS_TOKEN")?.trim()) {
+  return {
+    Accept: "application/json",
+    "Accept-Encoding": "gzip, deflate",
+    "Content-Type": "application/json",
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+  };
+}
+
 function isExpoPushToken(token: string) {
   return /^Expo(nent)?PushToken\[[A-Za-z0-9_-]+\]$/.test(token);
 }
@@ -91,11 +104,7 @@ export async function sendPushToUser(adminClient: SupabaseClient, payload: PushP
 
   const expoResponse = await fetch(expoPushEndpoint, {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Accept-Encoding": "gzip, deflate",
-      "Content-Type": "application/json",
-    },
+    headers: expoPushHeaders(),
     body: JSON.stringify(
       tokens.map((row) => ({
         to: row.token,

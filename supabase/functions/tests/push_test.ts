@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any require-await -- minimal async fakes standing in for Supabase/Expo/Razorpay
-import { sendPushToUser } from "../_shared/push.ts";
+import { expoPushHeaders, sendPushToUser } from "../_shared/push.ts";
 import { rpcError } from "../_shared/supabase.ts";
 
 function fakeClient(opts: { allowed?: boolean; settings?: Record<string, boolean> | null; tokens: { id: string; token: string }[] }) {
@@ -58,4 +58,11 @@ Deno.test("maps SQL errcodes to HTTP statuses", () => {
     if (rpcError({ code, message: "x" }).status !== status) throw new Error(`${code} -> ${status}`);
   }
   if (rpcError({ code: "XX000", message: "secret database details" }).message.includes("secret")) throw new Error("internal details leaked");
+});
+
+Deno.test("sends the Expo access token when one is configured", () => {
+  const withToken = expoPushHeaders("expo-secret") as Record<string, string>;
+  if (withToken.Authorization !== "Bearer expo-secret") throw new Error("access token missing");
+  const without = expoPushHeaders("") as Record<string, string>;
+  if ("Authorization" in without || without["Content-Type"] !== "application/json") throw new Error(JSON.stringify(without));
 });
