@@ -1,5 +1,6 @@
 /**
- * Kundali Konnect design tokens — "Celestial Night".
+ * Kundali Konnect design tokens — "Matte Night": off-black surfaces, gold accents, a quiet
+ * starfield.
  *
  * Every screen should pull colors, type, spacing and radii from here instead of
  * hard-coding values. Components in `components/ui` wrap the common patterns.
@@ -9,15 +10,17 @@ import { DarkTheme, type Theme } from '@react-navigation/native';
 import { Platform, type TextStyle, type ViewStyle } from 'react-native';
 
 export const palette = {
-  midnight950: '#07051A',
-  midnight900: '#0E0B1F',
-  midnight850: '#120F27',
-  midnight800: '#17132E',
-  midnight700: '#211B40',
-  midnight600: '#2E2750',
-  midnight500: '#463C73',
-  lavender400: '#6F6890',
-  lavender300: '#A79FC0',
+  // Matte, off-black neutrals (not pure #000, which looks harsh and smears on OLED).
+  ink950: '#080808',
+  ink900: '#0E0E0E',
+  ink850: '#121212',
+  ink800: '#171717',
+  ink700: '#212121',
+  ink600: '#2C2C2C',
+  ink500: '#444444',
+  // Slightly warm greys for secondary text, so they sit well next to the gold.
+  stone400: '#75716B',
+  stone300: '#ADA8A0',
   moon100: '#F4EEDF',
   moon200: '#E2DACA',
   gold500: '#E9B949',
@@ -31,22 +34,22 @@ export const palette = {
 
 export const colors = {
   /** App canvas. */
-  background: palette.midnight900,
+  background: palette.ink900,
   /** Deepest tone, used at the bottom of background gradients and behind modals. */
-  backgroundDeep: palette.midnight950,
+  backgroundDeep: palette.ink950,
   /** Cards, sheets, list rows. */
-  surface: palette.midnight800,
+  surface: palette.ink800,
   /** Elevated or pressed surfaces, selected rows. */
-  surfaceRaised: palette.midnight700,
+  surfaceRaised: palette.ink700,
   /** Inputs and recessed wells. */
-  surfaceSunken: palette.midnight850,
+  surfaceSunken: palette.ink850,
 
-  border: palette.midnight600,
-  borderStrong: palette.midnight500,
+  border: palette.ink600,
+  borderStrong: palette.ink500,
 
   text: palette.moon100,
-  textMuted: palette.lavender300,
-  textFaint: palette.lavender400,
+  textMuted: palette.stone300,
+  textFaint: palette.stone400,
 
   accent: palette.gold500,
   accentPressed: palette.gold600,
@@ -64,26 +67,26 @@ export const colors = {
   danger: palette.rose400,
   dangerSoft: 'rgba(240, 113, 120, 0.14)',
 
-  scrim: 'rgba(7, 5, 26, 0.72)',
-  overlayOnPhoto: 'rgba(7, 5, 26, 0.38)',
-  glass: 'rgba(23, 19, 46, 0.72)',
+  scrim: 'rgba(8, 8, 8, 0.72)',
+  overlayOnPhoto: 'rgba(8, 8, 8, 0.38)',
+  glass: 'rgba(23, 23, 23, 0.72)',
   glassBorder: 'rgba(244, 238, 223, 0.12)',
   white: '#FFFFFF',
   transparent: 'transparent',
 } as const;
 
 /** Gradient stops for the app canvas, top to bottom. */
-export const backgroundGradient = ['#1B1440', palette.midnight900, palette.midnight950] as const;
+export const backgroundGradient = ['#161616', palette.ink900, palette.ink950] as const;
 
 /** Fades a photo into the canvas so text laid over its lower half stays legible. */
-export const photoScrimGradient = ['transparent', 'rgba(7, 5, 26, 0.35)', palette.midnight950] as const;
+export const photoScrimGradient = ['transparent', 'rgba(8, 8, 8, 0.35)', palette.ink950] as const;
 
 /** Heavier scrim for full-screen artwork behind a headline and buttons. */
 export const artworkScrimGradient = [
-  'rgba(7, 5, 26, 0.35)',
-  'rgba(7, 5, 26, 0.2)',
-  'rgba(14, 11, 31, 0.92)',
-  palette.midnight950,
+  'rgba(8, 8, 8, 0.35)',
+  'rgba(8, 8, 8, 0.2)',
+  'rgba(14, 14, 14, 0.92)',
+  palette.ink950,
 ] as const;
 
 export const fontFamily = {

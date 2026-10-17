@@ -74,7 +74,7 @@ export default function SubscriptionsScreen() {
 
         <View style={styles.balanceCard}>
           <LinearGradient
-            colors={[palette.midnight700, palette.midnight800]}
+            colors={[palette.ink700, palette.ink800]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}

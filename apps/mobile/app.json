@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "kundalikonnect",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0E0B1F",
+    "backgroundColor": "#0E0E0E",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -57,7 +57,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0E0B1F"
+          "backgroundColor": "#0E0E0E"
         }
       ]
     ],
