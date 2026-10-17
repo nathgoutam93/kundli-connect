@@ -46,7 +46,7 @@ const VARIANTS: Record<IconButtonVariant, { bg: string; border: string; fg: stri
   glass: { bg: colors.glass, border: colors.glassBorder, fg: colors.text, pressed: colors.surfaceRaised },
   accent: { bg: colors.accent, border: colors.accent, fg: colors.onAccent, pressed: colors.accentPressed },
   like: { bg: colors.like, border: colors.like, fg: colors.onLike, pressed: colors.likePressed },
-  plain: { bg: 'rgba(23, 19, 46, 0)', border: colors.transparent, fg: colors.text, pressed: colors.surface },
+  plain: { bg: 'rgba(23, 23, 23, 0)', border: colors.transparent, fg: colors.text, pressed: colors.surface },
 };
 
 const DISABLED = { bg: colors.surfaceRaised, border: colors.border, fg: colors.textFaint, pressed: colors.surfaceRaised };

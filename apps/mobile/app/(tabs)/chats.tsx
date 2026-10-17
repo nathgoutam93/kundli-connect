@@ -119,7 +119,7 @@ function ChatRow({ match, showDivider }: { match: ChatPreview; showDivider: bool
   const hasUnread = match.unreadCount > 0;
   const { animatedStyle, pressHandlers } = usePressAnimation({
     pressedScale: 0.985,
-    backgroundColor: 'rgba(33, 27, 64, 0)',
+    backgroundColor: 'rgba(33, 33, 33, 0)',
     pressedBackgroundColor: colors.surfaceRaised,
     haptic: false,
     onPress: () => router.push(`/chat/${match.id}`),

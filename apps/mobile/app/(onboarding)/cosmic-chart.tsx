@@ -256,7 +256,7 @@ function ChartImageCarousel({ chartImages }: { chartImages: { chartId: string; p
                 {chartImages.map((chartImage) => (
                     <View key={chartImage.path} style={[styles.chartImageCard, { width: chartWidth }]}>
                         <Image source={{ uri: chartImage.signedUrl }} style={styles.chartImage} contentFit="contain" transition={250} />
-                        <AppText variant="overline" color={palette.midnight600} align="center">
+                        <AppText variant="overline" color={palette.ink600} align="center">
                             {CHARTS[chartImage.chartId as keyof typeof CHARTS] ?? `${chartImage.chartId} chart`}
                         </AppText>
                     </View>

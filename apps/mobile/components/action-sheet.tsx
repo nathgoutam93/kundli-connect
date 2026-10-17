@@ -51,7 +51,7 @@ function ActionRow({ action, showDivider, onPress }: { action: SheetAction; show
   const color = action.tone === 'danger' ? colors.danger : colors.text;
   const { animatedStyle, pressHandlers } = usePressAnimation({
     pressedScale: 0.98,
-    backgroundColor: 'rgba(33, 27, 64, 0)',
+    backgroundColor: 'rgba(33, 33, 33, 0)',
     pressedBackgroundColor: colors.surfaceRaised,
     onPress,
   });

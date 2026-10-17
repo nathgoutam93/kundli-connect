@@ -216,7 +216,7 @@ function SettingsSection({ children, title }: { children: ReactNode; title: stri
 function LinkRow({ children, onPress, accessibilityLabel }: { children: ReactNode; onPress: () => void; accessibilityLabel: string }) {
   const { animatedStyle, pressHandlers } = usePressAnimation({
     pressedScale: 0.98,
-    backgroundColor: 'rgba(33, 27, 64, 0)',
+    backgroundColor: 'rgba(33, 33, 33, 0)',
     pressedBackgroundColor: colors.surfaceRaised,
     haptic: false,
     onPress,
