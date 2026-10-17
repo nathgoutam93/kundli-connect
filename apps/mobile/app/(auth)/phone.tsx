@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import CountryPicker, { Country, CountryCode } from 'react-native-country-picker-modal';
 
@@ -82,6 +82,9 @@ export default function PhoneScreen() {
     const [isVerifying, setIsVerifying] = useState(false);
     const [authError, setAuthError] = useState('');
     const isVerifyingRef = useRef(false);
+    const isMountedRef = useRef(true);
+
+    useEffect(() => () => { isMountedRef.current = false; }, []);
 
     useFocusEffect(
         useCallback(() => {
@@ -133,14 +136,20 @@ export default function PhoneScreen() {
         isVerifyingRef.current = true;
         setIsVerifying(true);
         setAuthError('');
+        // Close the keyboard before the session arrives and this screen is replaced.
+        otpInputRef.current?.blur();
+        Keyboard.dismiss();
+        // On success the (auth) layout redirects once the profile has loaded; navigating from here
+        // as well raced that redirect.
         completeOtpLogin(otp, otpPhoneNumber)
-            .then(() => {
-                router.replace('/');
+            .catch((error) => {
+                if (!isMountedRef.current) return;
+                setAuthError(phoneAuthError(error, true));
+                setOtp('');
             })
-            .catch((error) => { setAuthError(phoneAuthError(error, true)); setOtp(''); })
             .finally(() => {
                 isVerifyingRef.current = false;
-                setIsVerifying(false);
+                if (isMountedRef.current) setIsVerifying(false);
             });
     }, [completeOtpLogin, otp, otp.length, otpPhoneNumber, showOtp]);
 

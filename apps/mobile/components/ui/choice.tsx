@@ -34,11 +34,14 @@ type ChoiceRowProps = {
   onPress: () => void;
   /** `radio` shows a ring, `check` shows a checkbox for multi-select lists. */
   indicator?: 'radio' | 'check';
+  /** Shown as selected but faded and not tappable, because another choice already covers it. */
+  included?: boolean;
 };
 
 /** Full-width selectable option used in onboarding and settings lists. */
-export function ChoiceRow({ label, description, icon, selected, onPress, indicator = 'radio' }: ChoiceRowProps) {
-  const progress = useSelection(selected);
+export function ChoiceRow({ label, description, icon, selected, onPress, indicator = 'radio', included = false }: ChoiceRowProps) {
+  const checked = selected || included;
+  const progress = useSelection(checked);
   const { animatedStyle, pressHandlers } = usePressAnimation({ pressedScale: 0.98, haptic: 'select', onPress });
 
   const rowStyle = useAnimatedStyle(() => ({
@@ -49,10 +52,12 @@ export function ChoiceRow({ label, description, icon, selected, onPress, indicat
   return (
     <AnimatedPressable
       accessibilityRole={indicator === 'check' ? 'checkbox' : 'radio'}
-      accessibilityState={{ checked: selected, selected }}
-      style={[styles.row, rowStyle, animatedStyle]}
-      {...pressHandlers}>
-      {icon ? <Ionicons name={icon} size={20} color={selected ? colors.accent : colors.textMuted} /> : null}
+      accessibilityState={{ checked, selected: checked, disabled: included }}
+      accessibilityHint={included ? 'Included in your current choice' : undefined}
+      disabled={included}
+      style={[styles.row, rowStyle, animatedStyle, included && styles.included]}
+      {...(included ? {} : pressHandlers)}>
+      {icon ? <Ionicons name={icon} size={20} color={checked ? colors.accent : colors.textMuted} /> : null}
       <View style={styles.rowText}>
         <AppText variant="bodyStrong">{label}</AppText>
         {description ? (
@@ -61,7 +66,7 @@ export function ChoiceRow({ label, description, icon, selected, onPress, indicat
           </AppText>
         ) : null}
       </View>
-      {indicator === 'check' ? <CheckIndicator progress={progress} selected={selected} /> : <RadioIndicator progress={progress} selected={selected} />}
+      {indicator === 'check' ? <CheckIndicator progress={progress} selected={checked} /> : <RadioIndicator progress={progress} selected={checked} />}
     </AnimatedPressable>
   );
 }
@@ -110,11 +115,14 @@ type ChoiceChipProps = {
   selected: boolean;
   onPress: () => void;
   icon?: IconName;
+  /** Shown as selected but faded and not tappable, because another choice already covers it. */
+  included?: boolean;
 };
 
 /** Compact pill option for dense multi-select groups. */
-export function ChoiceChip({ label, selected, onPress, icon }: ChoiceChipProps) {
-  const progress = useSelection(selected);
+export function ChoiceChip({ label, selected, onPress, icon, included = false }: ChoiceChipProps) {
+  const checked = selected || included;
+  const progress = useSelection(checked);
   const { animatedStyle, pressHandlers } = usePressAnimation({ pressedScale: 0.94, haptic: 'select', onPress });
 
   const chipStyle = useAnimatedStyle(() => ({
@@ -128,16 +136,21 @@ export function ChoiceChip({ label, selected, onPress, icon }: ChoiceChipProps) 
   return (
     <AnimatedPressable
       accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
-      style={[styles.chip, chipStyle, animatedStyle]}
-      {...pressHandlers}>
-      {icon ? <Ionicons name={icon} size={15} color={selected ? colors.onAccent : colors.textMuted} /> : null}
+      accessibilityState={{ checked, disabled: included }}
+      accessibilityHint={included ? 'Included in your current choice' : undefined}
+      disabled={included}
+      style={[styles.chip, chipStyle, animatedStyle, included && styles.included]}
+      {...(included ? {} : pressHandlers)}>
+      {icon ? <Ionicons name={icon} size={15} color={checked ? colors.onAccent : colors.textMuted} /> : null}
       <Animated.Text style={[type.subhead, labelStyle]}>{label}</Animated.Text>
     </AnimatedPressable>
   );
 }
 
 const styles = StyleSheet.create({
+  included: {
+    opacity: 0.5,
+  },
   row: {
     minHeight: 58,
     flexDirection: 'row',

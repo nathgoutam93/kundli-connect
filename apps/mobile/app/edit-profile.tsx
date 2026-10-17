@@ -28,6 +28,7 @@ import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { type UserProfile } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { isIncludedByEveryone, PREFERENCE_OPTIONS, togglePreference } from '@/lib/gender-preferences';
 import { NAME_MAX_LENGTH, BIO_MAX_LENGTH, CONTACT_EMAIL_MAX_LENGTH } from '@/lib/profile-validation';
 import { changedProfileFields } from '@/lib/profile-patch';
 
@@ -38,7 +39,6 @@ const PHOTO_GRID_GAP = space.xs;
 /** Portrait tiles, the same shape as onboarding and the profile photos people see. */
 const PHOTO_ASPECT = 1.3;
 const GENDER_OPTIONS = ['Male', 'Female', 'Non - Binary'];
-const PREFERENCE_OPTIONS = ['Male', 'Female', 'Non - Binary People', 'Everyone'];
 const FAMILY_PLAN_OPTIONS = ['Dont want Children', 'Want Children', 'Open to Children', 'Not Sure'];
 const RELIGION_OPTIONS = ['Hindu', 'Muslim', 'Christian', 'Sikh', 'Buddhist', 'Jain', 'Spiritual', 'Prefer not to say'];
 const HABIT_OPTIONS = ['Never', 'Sometimes', 'Often', 'Prefer not to say'];
@@ -343,17 +343,10 @@ export default function EditProfileScreen() {
         }
     }
 
-    function togglePreference(option: string) {
-        if (option === 'Everyone') {
-            updateForm('genderPreferences', ['Everyone']);
-            return;
-        }
-
-        const nextPreferences = form.genderPreferences.includes(option)
-            ? form.genderPreferences.filter((preference) => preference !== option)
-            : [...form.genderPreferences.filter((preference) => preference !== 'Everyone'), option];
-
-        updateForm('genderPreferences', nextPreferences);
+    function toggleLookingFor(option: string) {
+        const nextPreferences = togglePreference(form.genderPreferences, option);
+        // A saved profile always keeps a choice; with none, nobody would see it in Discover.
+        if (nextPreferences.length > 0) updateForm('genderPreferences', nextPreferences);
     }
 
     async function saveProfile() {
@@ -488,7 +481,7 @@ export default function EditProfileScreen() {
 
                     <Section title="Identity">
                         <OptionGroup label="Gender" options={GENDER_OPTIONS} selectedValue={form.gender} onSelect={(value) => updateForm('gender', value)} />
-                        <OptionGroup label="Looking for" options={PREFERENCE_OPTIONS} selectedValues={form.genderPreferences} onSelect={togglePreference} />
+                        <OptionGroup label="Looking for" options={PREFERENCE_OPTIONS} selectedValues={form.genderPreferences} includedBy={isIncludedByEveryone} onSelect={toggleLookingFor} />
                         <TextField label="Height" value={form.height} onChangeText={(value) => updateForm('height', value)} />
                     </Section>
 
@@ -728,12 +721,15 @@ function OptionGroup({
     options,
     selectedValue,
     selectedValues,
+    includedBy,
     onSelect,
 }: {
     label: string;
     options: string[];
     selectedValue?: string;
     selectedValues?: string[];
+    /** Options already covered by another selection, shown ticked but not tappable. */
+    includedBy?: (selected: string[], option: string) => boolean;
     onSelect: (value: string) => void;
 }) {
     return (
@@ -747,6 +743,7 @@ function OptionGroup({
                         key={option}
                         label={option}
                         selected={selectedValue === option || Boolean(selectedValues?.includes(option))}
+                        included={Boolean(selectedValues && includedBy?.(selectedValues, option))}
                         onPress={() => onSelect(option)}
                     />
                 ))}

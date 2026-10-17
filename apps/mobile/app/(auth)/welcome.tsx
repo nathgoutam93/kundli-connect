@@ -33,10 +33,8 @@ export default function WelcomeScreen() {
     setBusyProvider(provider);
     try {
       const result = await signInWithProvider(provider);
-      if (result.status === 'success') {
-        // The index route sends new users to onboarding and returning users to the app.
-        router.replace('/');
-      } else if (result.status === 'failed') {
+      // On success the (auth) layout redirects to onboarding or the app once the profile loads.
+      if (result.status === 'failed') {
         Alert.alert('Sign-in failed', result.reason);
       }
     } catch (error) {

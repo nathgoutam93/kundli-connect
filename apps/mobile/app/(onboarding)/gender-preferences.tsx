@@ -6,8 +6,7 @@ import { OnboardingStep } from '@/components/onboarding-step';
 import { ChoiceRow } from '@/components/ui/choice';
 import { space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
-
-const PREFERENCE_OPTIONS = ['Male', 'Female', 'Non - Binary People', 'Everyone'];
+import { isIncludedByEveryone, PREFERENCE_OPTIONS, togglePreference } from '@/lib/gender-preferences';
 
 function getDefaultPreferences(gender: string) {
   if (gender === 'Male') {
@@ -28,16 +27,6 @@ export default function GenderPreferencesScreen() {
     savedPreferences.length > 0 ? savedPreferences : getDefaultPreferences(profile.gender)
   );
 
-  function togglePreference(option: string) {
-    setSelectedPreferences((current) => {
-      if (option === 'Everyone') return current.includes(option) ? [] : ['Everyone'];
-      if (current.includes(option)) {
-        return current.filter((item) => item !== option);
-      }
-
-      return [...current.filter((item) => item !== 'Everyone'), option];
-    });
-  }
 
   async function handleContinue() {
     await updateProfile({ genderPreferences: selectedPreferences });
@@ -58,7 +47,8 @@ export default function GenderPreferencesScreen() {
             label={option}
             indicator="check"
             selected={selectedPreferences.includes(option)}
-            onPress={() => togglePreference(option)}
+            included={isIncludedByEveryone(selectedPreferences, option)}
+            onPress={() => setSelectedPreferences((current) => togglePreference(current, option))}
           />
         ))}
       </View>
