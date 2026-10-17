@@ -13,6 +13,7 @@ import { ScreenHeader } from '@/components/ui/screen-header';
 import { TextField } from '@/components/ui/text-field';
 import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
+import { phoneAuthError } from '@/lib/phone-auth-error';
 
 const COUNTRY_PICKER_THEME = {
     primaryColor: colors.accent,
@@ -79,6 +80,7 @@ export default function PhoneScreen() {
     const [countryPickerVisible, setCountryPickerVisible] = useState(false);
     const [isSendingOtp, setIsSendingOtp] = useState(false);
     const [isVerifying, setIsVerifying] = useState(false);
+    const [authError, setAuthError] = useState('');
     const isVerifyingRef = useRef(false);
 
     useFocusEffect(
@@ -130,11 +132,12 @@ export default function PhoneScreen() {
 
         isVerifyingRef.current = true;
         setIsVerifying(true);
+        setAuthError('');
         completeOtpLogin(otp, otpPhoneNumber)
             .then(() => {
                 router.replace('/');
             })
-            .catch(() => setOtp(''))
+            .catch((error) => { setAuthError(phoneAuthError(error, true)); setOtp(''); })
             .finally(() => {
                 isVerifyingRef.current = false;
                 setIsVerifying(false);
@@ -142,7 +145,7 @@ export default function PhoneScreen() {
     }, [completeOtpLogin, otp, otp.length, otpPhoneNumber, showOtp]);
 
     async function resendCode() {
-        if (secondsLeft > 0) {
+        if (secondsLeft > 0 || isSendingOtp || isVerifyingRef.current) {
             return;
         }
 
@@ -153,10 +156,17 @@ export default function PhoneScreen() {
         }
 
         setPhoneNumber(nextPhoneNumber);
-        await requestOtp(nextPhoneNumber);
-        setOtpPhoneNumber(nextPhoneNumber);
-        setOtp('');
-        setSecondsLeft(42);
+        setIsSendingOtp(true);
+        setAuthError('');
+        try {
+            await requestOtp(nextPhoneNumber);
+            setOtpPhoneNumber(nextPhoneNumber);
+            setOtp('');
+            setSecondsLeft(42);
+        } catch (error) {
+            setAuthError(phoneAuthError(error));
+            if ((error as { status?: number })?.status === 429) setSecondsLeft(60);
+        } finally { setIsSendingOtp(false); }
     }
 
     function onCountrySelect(country: Country) {
@@ -181,6 +191,7 @@ export default function PhoneScreen() {
 
         setPhoneNumber(nextPhoneNumber);
         setIsSendingOtp(true);
+        setAuthError('');
 
         try {
             await requestOtp(nextPhoneNumber);
@@ -188,6 +199,8 @@ export default function PhoneScreen() {
             setShowOtp(true);
             setOtp('');
             setSecondsLeft(42);
+        } catch (error) {
+            setAuthError(phoneAuthError(error));
         } finally {
             setIsSendingOtp(false);
         }
@@ -322,9 +335,9 @@ export default function PhoneScreen() {
                         )}
                     </View>
                 )}
-                {serviceError ? (
-                    <AppText variant="footnote" color={colors.danger}>
-                        {serviceError}
+                {authError || serviceError ? (
+                    <AppText accessibilityLiveRegion="polite" variant="footnote" color={colors.danger}>
+                        {authError || serviceError}
                     </AppText>
                 ) : null}
             </KeyboardAvoidingView>

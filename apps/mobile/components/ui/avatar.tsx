@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { ProfileImage } from '@/components/profile-image';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { AppText } from '@/components/ui/app-text';
@@ -36,7 +36,7 @@ export function Avatar({ uri, name, size = 48, ring = null, style }: AvatarProps
         style,
       ]}>
       {uri ? (
-        <Image source={{ uri }} style={[styles.image, { borderRadius: size / 2 }]} contentFit="cover" transition={200} />
+        <ProfileImage uri={uri} style={[styles.image, { borderRadius: size / 2 }]} contentFit="cover" transition={200} />
       ) : (
         <View style={[styles.fallback, { borderRadius: size / 2 }]}>
           <AppText

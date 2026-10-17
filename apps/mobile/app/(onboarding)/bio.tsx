@@ -4,21 +4,20 @@ import { useState } from 'react';
 import { OnboardingStep } from '@/components/onboarding-step';
 import { TextField } from '@/components/ui/text-field';
 import { useAppData } from '@/hooks/use-app-data';
-
-const BIO_MAX_LENGTH = 180;
+import { BIO_MAX_LENGTH } from '@/lib/profile-validation';
 
 export default function BioScreen() {
   const { profile, updateProfile } = useAppData();
   const [bio, setBio] = useState(profile.bio ?? '');
   const trimmedBio = bio.trim();
-  const canContinue = Boolean(trimmedBio);
+  const canContinue = Boolean(trimmedBio) && Array.from(trimmedBio).length <= BIO_MAX_LENGTH;
 
-  function handleContinue() {
+  async function handleContinue() {
     if (!canContinue) {
       return;
     }
 
-    updateProfile({ bio: trimmedBio });
+    await updateProfile({ bio: trimmedBio });
     router.push('/(onboarding)/gender-preferences');
   }
 

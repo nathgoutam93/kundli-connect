@@ -66,3 +66,6 @@ verify_jwt = false
 
 [functions.send-astro-insights]
 verify_jwt = false
+
+[functions.cleanup-profile-photos]
+verify_jwt = false

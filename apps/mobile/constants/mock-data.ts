@@ -8,6 +8,7 @@ export type UserProfile = {
   updatedAt: string;
   name: string;
   email: string;
+  verifiedEmail: string;
   dateOfBirth: string;
   timeOfBirth: string;
   age: number;
@@ -73,7 +74,7 @@ export type DiscoverProfile = {
   prompt: string;
   photos: string[];
   details: ProfileDetail[];
-  compatibility: CompatibilityResult;
+  compatibility: CompatibilityResult | null;
 };
 
 export type LikeItem = {
@@ -89,11 +90,12 @@ export type LikeItem = {
   note: string;
   timeAgo: string;
   readAt?: string;
-  compatibility: CompatibilityResult;
+  compatibility: CompatibilityResult | null;
 };
 
 export type ChatMessage = {
   id: string;
+  clientRequestId?: string;
   createdAt: string;
   senderId: 'me' | string;
   text: string;
@@ -113,7 +115,7 @@ export type ChatPreview = {
   lastMessage: string;
   unreadCount: number;
   hidden?: boolean;
-  compatibilityScore: number;
+  compatibilityScore: number | null;
   compatibility?: CompatibilityResult;
   hasMoreMessages?: boolean;
   messages: ChatMessage[];
@@ -153,6 +155,8 @@ export type SubscriptionState = {
   planId?: string;
   renewalDate?: string;
   restoredAt?: string;
+  /** Local deadline derived from the server’s remaining duration. */
+  expiresAt?: number;
 };
 
 export type NotificationSettings = {
@@ -174,6 +178,7 @@ export const DEFAULT_PROFILE: UserProfile = {
   updatedAt: now,
   name: 'New User',
   email: '',
+  verifiedEmail: '',
   dateOfBirth: '',
   timeOfBirth: '',
   // Worked out from dateOfBirth when the profile loads; 0 hides it until then.
@@ -196,7 +201,7 @@ export const DEFAULT_PROFILE: UserProfile = {
   drinkingVisibleOnProfile: true,
   smoking: '',
   smokingVisibleOnProfile: true,
-  location: 'India',
+  location: '',
   bio: '',
   phoneNumber: '',
   photoUris: [],

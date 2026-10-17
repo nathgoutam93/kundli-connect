@@ -10,6 +10,7 @@ import {
   type SubscriptionState,
 } from '@/constants/mock-data';
 import { getSupabaseClient } from '@/lib/supabase';
+import { cursorArgs, listPage, type ListCursor } from '@/lib/list-pages';
 
 async function getSessionUser() {
   const { data, error } = await getSupabaseClient().auth.getSession();
@@ -17,17 +18,19 @@ async function getSessionUser() {
   return data.session?.user ?? null;
 }
 
-export async function getSentLikes() {
+export async function getSentLikes(before?: ListCursor) {
   const supabase = getSupabaseClient();
   const user = await getSessionUser();
-  if (!user) return [];
-  const { data, error } = await supabase
-    .from('likes')
-    .select('id, to_user_id, opening_message, status, created_at')
-    .eq('from_user_id', user.id)
-    .order('created_at', { ascending: false });
+  if (!user) throw new Error('Not authenticated.');
+  const { data, error } = await supabase.rpc('get_sent_likes_page',cursorArgs(before));
   if (error) throw error;
-  return data ?? [];
+  return listPage((data ?? []) as { id:string; to_user_id:string; status:string; opening_message:string | null; created_at:string }[],(row) => row,(row) => ({ at:row.created_at,id:row.id }));
+}
+
+export async function getUnreadCounts(): Promise<{ likes:number; messages:number }> {
+  const { data,error } = await getSupabaseClient().rpc('get_social_unread_counts');
+  if (error) throw error;
+  return { likes:Number(data?.likes ?? 0),messages:Number(data?.messages ?? 0) };
 }
 
 export async function passProfile(profileId: string) {
@@ -62,19 +65,26 @@ export async function getSettings() {
   };
 }
 
-export async function updateSettings(notifications: NotificationSettings, privacy: PrivacySettings) {
+export type SettingsPatch = { notifications?: Partial<NotificationSettings>; privacy?: Partial<PrivacySettings> };
+
+export async function updateSettings({ notifications, privacy }: SettingsPatch, expectedUserId?: string) {
   const supabase = getSupabaseClient();
   const user = await getSessionUser();
   if (!user) throw new Error('Not authenticated.');
-  const { error } = await supabase.from('user_settings').upsert({
-    user_id: user.id,
-    notify_likes: notifications.likes,
-    notify_matches: notifications.matches,
-    notify_messages: notifications.messages,
-    notify_astrology_reports: notifications.astrologyReports,
-    profile_discoverable: privacy.profileDiscoverable,
-    updated_at: new Date().toISOString(),
-  });
+  if (expectedUserId && user.id !== expectedUserId) throw new Error('Your session changed. Open settings again.');
+  const patch: Record<string, boolean> = {};
+  if (notifications?.likes !== undefined) patch.notify_likes = notifications.likes;
+  if (notifications?.matches !== undefined) patch.notify_matches = notifications.matches;
+  if (notifications?.messages !== undefined) patch.notify_messages = notifications.messages;
+  if (notifications?.astrologyReports !== undefined) patch.notify_astrology_reports = notifications.astrologyReports;
+  if (privacy?.profileDiscoverable !== undefined) patch.profile_discoverable = privacy.profileDiscoverable;
+  const { error } = await supabase.rpc('update_settings_fields', { p_updates: patch, p_expected_user_id: expectedUserId ?? user.id });
+  if (error) throw error;
+}
+
+export async function markIncomingLikesRead(ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await getSupabaseClient().rpc('mark_incoming_likes_read', { p_ids: ids.slice(0, 100) });
   if (error) throw error;
 }
 
@@ -97,7 +107,9 @@ export async function getCreditAccount() {
     const result = {
       id: item.id,
       createdAt: item.created_at,
-      title: item.reason,
+      title: /^Generated compatibility/i.test(item.reason) ? 'Compatibility report'
+        : /^Sent a like/i.test(item.reason) ? 'Like sent'
+        : item.reason.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, 'a member'),
       amount: item.amount,
       balanceAfter: runningBalance,
     };
@@ -140,17 +152,15 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
 }
 
 export async function getSubscription(): Promise<SubscriptionState> {
-  const { data, error } = await getSupabaseClient()
-    .from('user_subscriptions')
-    .select('plan_id, status, renewal_date, restored_at')
-    .maybeSingle();
+  const requestedAt = Date.now();
+  const { data, error } = await getSupabaseClient().rpc('get_effective_subscription');
   if (error) throw error;
-  return data
-    ? {
-        status: data.status as SubscriptionState['status'],
-        planId: data.plan_id ?? undefined,
-        renewalDate: data.renewal_date ?? undefined,
-        restoredAt: data.restored_at ?? undefined,
-      }
-    : DEFAULT_SUBSCRIPTION;
+  const remaining = Number(data?.remainingMs);
+  return data ? {
+    status: data.status as SubscriptionState['status'],
+    planId: data.planId ?? undefined,
+    renewalDate: data.renewalDate ?? undefined,
+    restoredAt: data.restoredAt ?? undefined,
+    expiresAt: requestedAt + (Number.isFinite(remaining) ? Math.max(0, remaining) : 0),
+  } : DEFAULT_SUBSCRIPTION;
 }

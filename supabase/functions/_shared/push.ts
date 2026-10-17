@@ -6,6 +6,7 @@ export type NotificationType = "likes" | "matches" | "messages" | "astrologyRepo
 
 export type PushPayload = {
   recipientUserId: string;
+  senderUserId?: string;
   title: string;
   body: string;
   data?: Record<string, unknown>;
@@ -75,6 +76,19 @@ export async function sendPushToUser(adminClient: SupabaseClient, payload: PushP
     return { sent: 0, tickets: [] as ExpoPushTicket[], invalidTokens: 0 };
   }
 
+  // Check after token/settings reads, as close to dispatch as possible. Fail closed.
+  if (notificationType && ["likes", "matches", "messages"].includes(notificationType)) {
+    if (!payload.senderUserId) return { sent: 0, tickets: [] as ExpoPushTicket[], invalidTokens: 0, suppressed: true };
+    const { data: allowed, error } = await adminClient.rpc("can_deliver_social_push", {
+      p_sender: payload.senderUserId,
+      p_recipient: payload.recipientUserId,
+      p_chat: typeof payload.data?.chatId === "string" ? payload.data.chatId : null,
+      p_like: typeof payload.data?.likeId === "string" ? payload.data.likeId : null,
+    });
+    if (error) throw error;
+    if (!allowed) return { sent: 0, tickets: [] as ExpoPushTicket[], invalidTokens: 0, suppressed: true };
+  }
+
   const expoResponse = await fetch(expoPushEndpoint, {
     method: "POST",
     headers: {
@@ -88,7 +102,7 @@ export async function sendPushToUser(adminClient: SupabaseClient, payload: PushP
         sound: "default",
         title: payload.title,
         body: payload.body,
-        data: payload.data ?? {},
+        data: { ...payload.data, recipientUserId: payload.recipientUserId },
       })),
     ),
   });

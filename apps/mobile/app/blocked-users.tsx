@@ -3,6 +3,8 @@ import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { AppText } from '@/components/ui/app-text';
+import { ListMoreButton } from '@/components/list-more-button';
+import { LoadErrorNotice } from '@/components/load-error-notice';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -15,7 +17,7 @@ import { listItemEntering, listItemExiting, listItemLayout } from '@/lib/list-mo
 
 /** People the user has blocked, with a way to unblock them. */
 export default function BlockedUsersScreen() {
-  const { data: blocked = [], isPending, error } = useBlockedUsersQuery();
+  const { data: blocked = [], isPending, error,refetch,hasNextPage,isFetchingNextPage,fetchNextPage } = useBlockedUsersQuery();
   const { unblock } = useSafetyActions();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -42,6 +44,7 @@ export default function BlockedUsersScreen() {
   return (
     <Screen starSeed={27}>
       <ScreenHeader title="Blocked people" />
+      {error ? <LoadErrorNotice subject="blocked people" onRetry={refetch} /> : null}
       {blocked.length > 0 ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <AppText variant="footnote" color={colors.textMuted}>
@@ -76,6 +79,7 @@ export default function BlockedUsersScreen() {
               </Animated.View>
             ))}
           </View>
+          <ListMoreButton hasMore={hasNextPage} loading={isFetchingNextPage} onLoad={fetchNextPage} />
         </ScrollView>
       ) : (
         <EmptyState

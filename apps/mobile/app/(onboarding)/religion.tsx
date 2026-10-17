@@ -14,8 +14,8 @@ export default function ReligionScreen() {
   const [religiousBeliefs, setReligiousBeliefs] = useState(profile.religiousBeliefs || '');
   const isValid = Boolean(religiousBeliefs);
 
-  function handleContinue() {
-    updateProfile({ religiousBeliefs });
+  async function handleContinue() {
+    await updateProfile({ religiousBeliefs });
     router.push('/(onboarding)/drink-smoke');
   }
 

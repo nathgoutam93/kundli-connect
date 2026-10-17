@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
@@ -26,7 +26,11 @@ import { colors, fontFamily, gutter, palette, radius, space } from '@/constants/
 import { useAppData } from '@/hooks/use-app-data';
 import { haptics } from '@/lib/haptics';
 
-const ICEBREAKERS = ['Ask about their ideal Sunday', 'Compare moon signs', 'Plan a first coffee'];
+const ICEBREAKERS = [
+  { label:'Ask about their ideal Sunday',text:'What does your ideal Sunday look like?' },
+  { label:'Compare moon signs',text:'What’s your Moon sign, and do you feel it describes you?' },
+  { label:'Plan a first coffee',text:'Would you like to meet for coffee sometime?' },
+];
 const ORBIT_SIZE = 240;
 /** When the two avatars meet in the middle and the sparkles fire. */
 const MEET_DELAY = 380;
@@ -105,7 +109,7 @@ export default function MatchScreen() {
 
         <View style={styles.center}>
           <View style={styles.copy}>
-            {hasPartner && score ? (
+            {hasPartner && score !== null && score !== undefined && Number.isFinite(score) ? (
               <Animated.View entering={FadeIn.delay(MEET_DELAY).duration(500)}>
                 <AppText variant="overline" color={colors.accent} align="center">
                   ✦ {score}% Kundli match ✦
@@ -148,12 +152,14 @@ export default function MatchScreen() {
             <View style={styles.icebreakers}>
               {ICEBREAKERS.map((item, index) => (
                 <Animated.View
-                  key={item}
-                  entering={FadeInUp.delay(MEET_DELAY + 320 + index * 90).duration(450)}
-                  style={styles.chip}>
+                  key={item.label}
+                  entering={FadeInUp.delay(MEET_DELAY + 320 + index * 90).duration(450)}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={item.label} style={styles.chip}
+                    onPress={() => { if (chatId) router.replace({ pathname:'/chat/[chatId]',params:{ chatId,draft:item.text } }); }}>
                   <AppText variant="subhead" color={colors.textMuted}>
-                    {item}
+                    {item.label}
                   </AppText>
+                  </Pressable>
                 </Animated.View>
               ))}
             </View>

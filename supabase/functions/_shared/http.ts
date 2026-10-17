@@ -51,11 +51,12 @@ export function servePost(handler: (request: Request) => Promise<Response>) {
       return await handler(request);
     } catch (error) {
       if (error instanceof HttpError) {
-        return jsonResponse({ error: error.message, ...error.details }, error.status);
+        if (error.status < 500) return jsonResponse({ error: error.message, ...error.details }, error.status);
+        console.error(error);
+        return jsonResponse({ error: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" }, error.status);
       }
       console.error(error);
-      const message = error instanceof Error ? error.message : "Unexpected error";
-      return jsonResponse({ error: message }, 500);
+      return jsonResponse({ error: "Something went wrong. Please try again.", code: "INTERNAL_ERROR" }, 500);
     }
   });
 }

@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { Children, Fragment, type ReactNode } from 'react';
+import { Children, Fragment, type ReactNode, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 
 import { SwitchRow } from '@/components/ui/app-switch';
+import { LoadErrorNotice } from '@/components/load-error-notice';
 import { AppText } from '@/components/ui/app-text';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -24,10 +25,23 @@ export default function SettingsScreen() {
     privacy,
     profile,
     serviceError,
+    settingsError,
+    settingsReady,
+    refreshSettings,
     subscription,
     updateNotifications,
     updatePrivacy,
   } = useAppData();
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+
+  async function saveSwitch(key: string, value: boolean, save: () => Promise<void>) {
+    setPending((previous) => ({ ...previous, [key]: value }));
+    try { await save(); }
+    catch { Alert.alert('Could not save setting', 'Please try again. Your saved setting has been restored.'); }
+    finally {
+      setPending((previous) => { const next = { ...previous }; delete next[key]; return next; });
+    }
+  }
 
   async function handleLogout() {
     await logout();
@@ -50,7 +64,7 @@ export default function SettingsScreen() {
           <View style={styles.accountCopy}>
             <AppText variant="headline">{profile.name}</AppText>
             <AppText variant="footnote" color={colors.textMuted}>
-              {profile.phoneNumber || profile.email || 'Kundali Konnect account'}
+              {profile.phoneNumber || profile.verifiedEmail || 'Kundali Konnect account'}
             </AppText>
           </View>
         </Card>
@@ -60,28 +74,33 @@ export default function SettingsScreen() {
             {serviceError}
           </AppText>
         ) : null}
+        {settingsError ? <LoadErrorNotice subject="settings" onRetry={refreshSettings} /> : null}
 
         <SettingsSection title="Notifications">
           <SwitchRow
             label="Likes"
-            value={notifications.likes}
-            onValueChange={(value) => updateNotifications({ likes: value })}
+            value={pending.likes ?? notifications.likes}
+            disabled={!settingsReady || pending.likes !== undefined}
+            onValueChange={(value) => { void saveSwitch('likes', value, () => updateNotifications({ likes: value })); }}
           />
           <SwitchRow
             label="Matches"
-            value={notifications.matches}
-            onValueChange={(value) => updateNotifications({ matches: value })}
+            value={pending.matches ?? notifications.matches}
+            disabled={!settingsReady || pending.matches !== undefined}
+            onValueChange={(value) => { void saveSwitch('matches', value, () => updateNotifications({ matches: value })); }}
           />
           <SwitchRow
             label="Messages"
-            value={notifications.messages}
-            onValueChange={(value) => updateNotifications({ messages: value })}
+            value={pending.messages ?? notifications.messages}
+            disabled={!settingsReady || pending.messages !== undefined}
+            onValueChange={(value) => { void saveSwitch('messages', value, () => updateNotifications({ messages: value })); }}
           />
           <SwitchRow
             label="Astrology reports"
             description="A weekly note when something notable happens in your chart"
-            value={notifications.astrologyReports}
-            onValueChange={(value) => updateNotifications({ astrologyReports: value })}
+            value={pending.astrologyReports ?? notifications.astrologyReports}
+            disabled={!settingsReady || pending.astrologyReports !== undefined}
+            onValueChange={(value) => { void saveSwitch('astrologyReports', value, () => updateNotifications({ astrologyReports: value })); }}
           />
         </SettingsSection>
 
@@ -89,8 +108,9 @@ export default function SettingsScreen() {
           <SwitchRow
             label="Discoverable profile"
             description="Turn off to pause appearing in Discover"
-            value={privacy.profileDiscoverable}
-            onValueChange={(value) => updatePrivacy({ profileDiscoverable: value })}
+            value={pending.profileDiscoverable ?? privacy.profileDiscoverable}
+            disabled={!settingsReady || pending.profileDiscoverable !== undefined}
+            onValueChange={(value) => { void saveSwitch('profileDiscoverable', value, () => updatePrivacy({ profileDiscoverable: value })); }}
           />
         </SettingsSection>
 
@@ -102,7 +122,7 @@ export default function SettingsScreen() {
             <View style={styles.accountCopy}>
               <AppText variant="subhead">Subscription</AppText>
               <AppText variant="footnote" color={colors.textMuted}>
-                {subscription.status === 'active' ? `Active until ${subscription.renewalDate}` : 'Free plan'}
+                {subscription.status === 'active' ? `Valid until ${subscription.renewalDate ? new Date(subscription.renewalDate).toLocaleDateString() : '—'}` : 'Free plan'}
               </AppText>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />

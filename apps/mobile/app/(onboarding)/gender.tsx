@@ -14,8 +14,8 @@ export default function GenderScreen() {
   const [selectedGender, setSelectedGender] = useState(profile.gender || '');
   const isValid = Boolean(selectedGender);
 
-  function handleContinue() {
-    updateProfile({ gender: selectedGender });
+  async function handleContinue() {
+    await updateProfile({ gender: selectedGender });
     router.push('/(onboarding)/height');
   }
 

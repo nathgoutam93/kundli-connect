@@ -12,6 +12,8 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { AppText } from '@/components/ui/app-text';
+import { LoadErrorNotice } from '@/components/load-error-notice';
+import { ListMoreButton } from '@/components/list-more-button';
 import { Avatar } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Screen } from '@/components/ui/screen';
@@ -27,7 +29,7 @@ import { listItemEntering, listItemExiting, listItemLayout } from '@/lib/list-mo
 import { AnimatedPressable, springs } from '@/lib/motion';
 
 export default function ChatsScreen() {
-  const { chats, isLoadingChats, refreshChats } = useAppData();
+  const { chats, chatsError, isLoadingChats, refreshChats,hasMoreChats,isLoadingMoreChats,loadMoreChats } = useAppData();
   const refreshControl = useRefreshControl(refreshChats);
   const visibleChats = chats.filter((chat) => !chat.hidden);
   const hiddenMatches = chats.filter((chat) => chat.hidden);
@@ -35,6 +37,7 @@ export default function ChatsScreen() {
   return (
     <Screen starSeed={9}>
       <ScreenHeader onBack={false} largeTitle="Matches" />
+      {chatsError ? <LoadErrorNotice subject="matches" onRetry={refreshChats} /> : null}
       {chats.length === 0 && isLoadingChats ? (
         <ChatsSkeleton />
       ) : chats.length > 0 ? (
@@ -43,8 +46,9 @@ export default function ChatsScreen() {
           {hiddenMatches.length > 0 ? (
             <MatchSection title="Hidden" matches={hiddenMatches} initiallyExpanded={false} />
           ) : null}
+          <ListMoreButton hasMore={hasMoreChats} loading={isLoadingMoreChats} onLoad={loadMoreChats} />
         </ScrollView>
-      ) : (
+      ) : chatsError ? null : (
         <ScrollView contentContainerStyle={styles.emptyContent} refreshControl={refreshControl}>
           <EmptyState
             icon="chatbubbles-outline"
@@ -133,7 +137,7 @@ function ChatRow({ match, showDivider }: { match: ChatPreview; showDivider: bool
           <AppText variant="headline" numberOfLines={1} style={styles.name}>
             {match.name}
           </AppText>
-          {match.compatibilityScore ? (
+          {match.compatibilityScore !== null ? (
             <View style={styles.scoreTag}>
               <Ionicons name="sparkles" size={10} color={colors.accent} />
               <AppText variant="caption" color={colors.accent}>

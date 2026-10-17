@@ -1,11 +1,9 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.106.2';
 
-import { birthInstant } from '../_shared/astro/ephemeris.ts';
-import { buildKundli, KUNDLI_ENGINE_VERSION } from '../_shared/astro/kundli.ts';
+import { birthDetailsSignature, buildKundliPayload, type KundliBirthInputs } from '../_shared/kundli-payload.ts';
 import { HttpError, jsonResponse, servePost } from '../_shared/http.ts';
 import type { ChartHouse } from '../_shared/astro/types.ts';
 import { getRequestContext } from '../_shared/supabase.ts';
-import { resolveUtcOffset } from '../_shared/timezone.ts';
 
 type ProfileBirthDetails = {
   id: string;
@@ -15,35 +13,29 @@ type ProfileBirthDetails = {
   birth_latitude: number | null;
   birth_longitude: number | null;
   birth_timezone: string | null;
+  birth_details_revision: number;
 };
 
 async function updateKundliStatus(
   adminClient: SupabaseClient,
   userId: string,
-  status: 'pending' | 'generated' | 'failed'
+  status: 'pending' | 'generated' | 'failed',
+  revision?: number
 ) {
-  await adminClient
+  const query = adminClient
     .from('profiles')
     .update({
       kundli_generation_status: status,
       updated_at: new Date().toISOString(),
     })
     .eq('id', userId);
+  if (revision !== undefined) query.eq('birth_details_revision', revision);
+  const { data, error } = await query.select('id').maybeSingle();
+  if (error) throw error;
+  if (!data && revision !== undefined) throw new HttpError(409, 'Birth details changed. Please generate your Kundli again.');
 }
 
-/** Changes whenever the birth details or the calculation change, so stale Kundlis are rebuilt. */
-function birthDetailsSignature(profile: ProfileBirthDetails) {
-  return [
-    KUNDLI_ENGINE_VERSION,
-    profile.date_of_birth,
-    profile.time_of_birth,
-    profile.birth_latitude,
-    profile.birth_longitude,
-    profile.birth_timezone,
-  ].join('|');
-}
-
-const profileColumns = 'id, date_of_birth, time_of_birth, birth_place, birth_latitude, birth_longitude, birth_timezone';
+const profileColumns = 'id, date_of_birth, time_of_birth, birth_place, birth_latitude, birth_longitude, birth_timezone, birth_details_revision';
 
 servePost(async (request) => {
   const { userId, adminClient } = await getRequestContext(request);
@@ -52,10 +44,11 @@ servePost(async (request) => {
     adminClient.from('profiles').select(profileColumns).eq('id', userId).single<ProfileBirthDetails>(),
     adminClient
       .from('kundlis')
-      .select('input_signature, parsed_summary, chart_image_paths, chart_houses')
+      .select('input_signature, input_revision, parsed_summary, chart_image_paths, chart_houses')
       .eq('user_id', userId)
       .maybeSingle<{
         input_signature: string | null;
+        input_revision: number | null;
         parsed_summary: Record<string, unknown>;
         chart_image_paths: Record<string, string> | null;
         chart_houses: Record<string, ChartHouse[]> | null;
@@ -63,8 +56,9 @@ servePost(async (request) => {
   ]);
   const profile = profileResult.data;
 
-  if (profileResult.error || !profile) {
-    await updateKundliStatus(adminClient, userId, 'failed');
+  if (profileResult.error) throw profileResult.error;
+  if (existingResult.error) throw existingResult.error;
+  if (!profile) {
     throw new HttpError(404, 'Birth details profile not found');
   }
 
@@ -76,15 +70,16 @@ servePost(async (request) => {
     profile.birth_longitude === null ||
     !profile.birth_timezone
   ) {
-    await updateKundliStatus(adminClient, userId, 'failed');
+    await updateKundliStatus(adminClient, userId, 'failed', profile.birth_details_revision);
     throw new HttpError(400, 'Missing required birth details');
   }
 
   // Deterministic: reuse the stored Kundli when it was built from the same details and engine.
-  const inputSignature = birthDetailsSignature(profile);
+  const inputs = profile as ProfileBirthDetails & KundliBirthInputs;
+  const inputSignature = birthDetailsSignature(inputs);
   const existing = existingResult.data;
-  if (existing && existing.input_signature === inputSignature) {
-    await updateKundliStatus(adminClient, userId, 'generated');
+  if (existing && existing.input_signature === inputSignature && existing.input_revision === profile.birth_details_revision) {
+    await updateKundliStatus(adminClient, userId, 'generated', profile.birth_details_revision);
     return jsonResponse({
       status: 'generated',
       parsed_summary: existing.parsed_summary,
@@ -95,41 +90,29 @@ servePost(async (request) => {
   }
 
   try {
-    const utcOffset = resolveUtcOffset(profile.birth_timezone, profile.date_of_birth, profile.time_of_birth);
-    const kundli = buildKundli({
-      utc: birthInstant(profile.date_of_birth, profile.time_of_birth, utcOffset),
-      latitude: profile.birth_latitude,
-      longitude: profile.birth_longitude,
+    const chart = buildKundliPayload(inputs);
+
+    const { error: upsertError } = await adminClient.rpc('commit_generated_kundli', {
+      p_user: userId,
+      p_revision: profile.birth_details_revision,
+      p_chart: chart,
     });
 
-    const { error: upsertError } = await adminClient.from('kundlis').upsert(
-      {
-        user_id: userId,
-        raw_response: kundli.details,
-        parsed_summary: kundli.summary,
-        // Charts are drawn in the app from chart_houses; no images are generated any more.
-        chart_image_paths: {},
-        chart_raw_responses: kundli.positions,
-        chart_houses: kundli.chartHouses,
-        input_signature: inputSignature,
-        generated_at: kundli.summary.generatedAt,
-      },
-      { onConflict: 'user_id' }
-    );
-
     if (upsertError) {
+      if (upsertError.code === '40001') throw new HttpError(409, 'Birth details changed. Please generate your Kundli again.');
       throw new Error(upsertError.message);
     }
 
-    await updateKundliStatus(adminClient, userId, 'generated');
     return jsonResponse({
       status: 'generated',
-      parsed_summary: kundli.summary,
+      parsed_summary: chart.parsed_summary,
       chart_image_paths: {},
-      chart_houses: kundli.chartHouses,
+      chart_houses: chart.chart_houses,
     });
   } catch (error) {
-    await updateKundliStatus(adminClient, userId, 'failed');
+    if (!(error instanceof HttpError && error.status === 409)) {
+      await updateKundliStatus(adminClient, userId, 'failed', profile.birth_details_revision);
+    }
     throw error;
   }
 });

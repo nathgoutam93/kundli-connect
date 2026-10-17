@@ -7,11 +7,12 @@ import {
   DEFAULT_SUBSCRIPTION,
   type UserProfile,
 } from '@/constants/mock-data';
-import { useAccountQueries, useChatsQuery, useDiscoverProfilesQuery, useDomainMutations, useIncomingLikesQuery, useProfileQuery } from '@/hooks/use-domain-data';
+import { useEffectiveSubscription } from '@/hooks/use-effective-subscription';
+import { useAccountQueries, useChatsQuery, useDiscoverProfilesQuery, useDomainMutations, useIncomingLikesQuery, useProfileQuery, useSkippedProfilesQuery, useUnreadCountsQuery } from '@/hooks/use-domain-data';
 import { createPendingMessage } from '@/lib/chat-cache';
+import { getMessageRequestId } from '@/services/message-attempts';
 import { signInWithSocialProvider, type SocialProvider, type SocialSignInResult } from '@/services/auth';
 import type { PurchaseOutcome } from '@/services/checkout';
-import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/providers/auth-provider';
 import { ensureCurrentUserProfile, registerCurrentUserPushToken } from '@/services/supabase-auth-service';
 
@@ -20,11 +21,13 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
   const client = useQueryClient();
   const profileQuery = useProfileQuery();
   const discoverQuery = useDiscoverProfilesQuery();
+  const skippedQuery = useSkippedProfilesQuery();
   const likesQuery = useIncomingLikesQuery();
   const chatsQuery = useChatsQuery();
+  const unreadQuery = useUnreadCountsQuery();
   const account = useAccountQueries();
   const mutations = useDomainMutations();
-  const id = auth.user?.id ?? 'anonymous';
+  const subscription = useEffectiveSubscription(account.subscription.data ?? DEFAULT_SUBSCRIPTION);
   const profile = profileQuery.data ?? { ...DEFAULT_PROFILE, id: auth.user?.id ?? DEFAULT_PROFILE.id };
   const settings = account.settings.data ?? { notifications: DEFAULT_NOTIFICATIONS, privacy: DEFAULT_PRIVACY };
 
@@ -45,9 +48,8 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
   const isHydrated = !auth.isInitializing && (!auth.user || !profileQuery.isPending);
 
   async function updateProfile(updates: Partial<UserProfile>) {
-    const next = { ...profile, ...updates, updatedAt: new Date().toISOString() };
-    client.setQueryData(queryKeys.profile(id), next);
-    await mutations.updateProfile.mutateAsync({ profile: next });
+    if (!profileQuery.data || profileQuery.isError) throw new Error('Load your profile before saving changes.');
+    await mutations.updateProfile.mutateAsync({ updates });
     if (updates.photoUris) await mutations.reorderPhotos.mutateAsync(updates.photoUris);
   }
 
@@ -57,18 +59,37 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     hasCompletedOnboarding: Boolean(profileQuery.data?._onboardingCompleted),
     isServiceBusy,
     serviceError,
+    profileError: profileQuery.isError,
+    discoverError: discoverQuery.isError,
+    skippedError: skippedQuery.isError,
+    likesError: likesQuery.isError,
+    chatsError: chatsQuery.isError,
+    settingsError: account.settings.isError,
+    settingsReady: account.settings.isSuccess,
     isLoadingDiscover: discoverQuery.isPending,
     isLoadingLikes: likesQuery.isPending,
     isLoadingChats: chatsQuery.isPending,
+    hasMoreLikes:Boolean(likesQuery.hasNextPage),
+    isLoadingMoreLikes:likesQuery.isFetchingNextPage,
+    loadMoreLikes:async () => { await likesQuery.fetchNextPage(); },
+    hasMoreChats:Boolean(chatsQuery.hasNextPage),
+    isLoadingMoreChats:chatsQuery.isFetchingNextPage,
+    loadMoreChats:async () => { await chatsQuery.fetchNextPage(); },
+    unreadLikes:unreadQuery.data?.likes ?? (likesQuery.data ?? []).filter((like) => !like.readAt).length,
+    unreadMessages:unreadQuery.data?.messages ?? (chatsQuery.data ?? []).reduce((total,chat) => total+(chat.hidden ? 0 : chat.unreadCount),0),
     profile,
     discoverProfiles: discoverQuery.data ?? [],
-    skippedProfileIds: [],
+    skippedProfiles: skippedQuery.data?.pages.flatMap((page) => page.profiles) ?? [],
+    hasMoreSkipped: Boolean(skippedQuery.hasNextPage),
+    isLoadingSkipped: skippedQuery.isPending || skippedQuery.isFetchingNextPage,
+    loadMoreSkipped: async () => { await skippedQuery.fetchNextPage(); },
+    refreshSkipped: async () => { await skippedQuery.refetch(); },
     likedProfileIds: [],
     likes: likesQuery.data ?? [],
     chats: chatsQuery.data ?? [],
     creditsBalance: account.credits.data?.balance ?? 0,
     creditHistory: account.credits.data?.history ?? [],
-    subscription: account.subscription.data ?? DEFAULT_SUBSCRIPTION,
+    subscription,
     subscriptionPlans: account.plans.data ?? [],
     creditPacks: account.creditPacks.data ?? [],
     notifications: settings.notifications,
@@ -79,26 +100,22 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       await auth.verifyOtp(phoneNumber, otp);
       await ensureCurrentUserProfile();
       await client.invalidateQueries();
-      void registerCurrentUserPushToken({ requestPermission: false });
+      void registerCurrentUserPushToken({ requestPermission: false }).catch(() => undefined);
     },
     signInWithProvider: async (provider) => {
       const result = await signInWithSocialProvider(provider);
       if (result.status === 'success') {
         await ensureCurrentUserProfile();
         await client.invalidateQueries();
-        void registerCurrentUserPushToken({ requestPermission: false });
+        void registerCurrentUserPushToken({ requestPermission: false }).catch(() => undefined);
       }
       return result;
     },
     completeOnboarding: async () => {
-      await mutations.updateProfile.mutateAsync({
-        profile: { ...profile, updatedAt: new Date().toISOString() },
-        onboardingCompleted: true,
-      });
-      // The Kundli is normally generated on the birth-location step; only retry if that failed.
-      if (profile.kundliStatus !== 'generated') {
-        await mutations.generateKundli.mutateAsync();
-      }
+      if (!profileQuery.data || profileQuery.isError) throw new Error('Load your profile before continuing.');
+      // Verify/regenerate the chart before birth details become immutable.
+      await mutations.generateKundli.mutateAsync();
+      await mutations.updateProfile.mutateAsync({ updates: {}, onboardingCompleted: true });
     },
     updateProfile,
     generateKundli: () => mutations.generateKundli.mutateAsync(),
@@ -106,9 +123,11 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     refreshDiscoverProfiles: async () => { await discoverQuery.refetch(); },
     refreshLikes: async () => { await likesQuery.refetch(); },
     refreshChats: async () => { await chatsQuery.refetch(); },
+    refreshSettings: async () => { await account.settings.refetch(); },
     loadEarlierChatMessages: async () => { await chatsQuery.refetch(); },
     refreshProfile: async () => { await profileQuery.refetch(); },
-    addProfilePhotos: async (uris) => mutations.addPhotos.mutateAsync({ uris, existingCount: profile.photoUris.length }),
+    addProfilePhotos: async (uris) => mutations.addPhotos.mutateAsync({ uris }),
+    replaceProfilePhoto: (uri, previous) => mutations.replacePhoto.mutateAsync({ uri, previous }),
     removeProfilePhoto: async (uri) => mutations.removePhoto.mutateAsync(uri),
     passProfile: async (profileId) => mutations.passProfile.mutateAsync(profileId),
     sendLike: async (profileId, message) => {
@@ -117,10 +136,13 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
     },
     replyToLike: async (likeId, message) => mutations.replyToLike.mutateAsync({ likeId, message }),
     dismissLike: async (likeId) => mutations.dismissLike.mutateAsync(likeId),
-    sendChatMessage: async (chatId, text) => {
-      await mutations.sendMessage.mutateAsync({ chatId, text, pending: createPendingMessage(text) });
+    sendChatMessage: async (chatId, text, requestTargetId) => {
+      if (!auth.user) throw new Error('Please sign in again.');
+      const requestId = await getMessageRequestId({ userId: auth.user.id, kind: 'send', targetId: requestTargetId ?? chatId, text });
+      await mutations.sendMessage.mutateAsync({ chatId, requestTargetId, text, pending: createPendingMessage(text,new Date(),requestId) });
     },
     markChatRead: async (chatId) => { await mutations.markRead.mutateAsync(chatId); },
+    markLikesRead: (ids) => mutations.markLikesRead.mutateAsync(ids),
     purchaseCreditPack: (packId) =>
       mutations.purchase.mutateAsync({ type: 'credit_pack', productId: packId, customer: { name: profile.name, email: profile.email, phone: profile.phoneNumber } }),
     purchaseSubscription: (planId) =>
@@ -132,9 +154,9 @@ export function useAppData<T = AppData>(selector?: (state: AppData) => T): T {
       if (failed?.error) throw failed.error;
     },
     updateNotifications: async (updates) =>
-      mutations.updateSettings.mutateAsync({ notifications: { ...settings.notifications, ...updates }, privacy: settings.privacy }),
+      mutations.updateSettings.mutateAsync({ notifications: updates }),
     updatePrivacy: async (updates) =>
-      mutations.updateSettings.mutateAsync({ notifications: settings.notifications, privacy: { ...settings.privacy, ...updates } }),
+      mutations.updateSettings.mutateAsync({ privacy: updates }),
     hydrateAuthSession: async () => undefined,
     logout: async () => {
       await auth.logout();
@@ -154,10 +176,29 @@ export type AppData = {
   isLoadingDiscover: boolean;
   isLoadingLikes: boolean;
   isLoadingChats: boolean;
+  hasMoreLikes:boolean;
+  isLoadingMoreLikes:boolean;
+  loadMoreLikes:() => Promise<void>;
+  hasMoreChats:boolean;
+  isLoadingMoreChats:boolean;
+  loadMoreChats:() => Promise<void>;
+  unreadLikes:number;
+  unreadMessages:number;
   serviceError?: string;
+  profileError: boolean;
+  discoverError: boolean;
+  skippedError: boolean;
+  likesError: boolean;
+  chatsError: boolean;
+  settingsError: boolean;
+  settingsReady: boolean;
   profile: UserProfile;
   discoverProfiles: ReturnType<typeof useDiscoverProfilesQuery>['data'] extends infer D ? NonNullable<D> : never;
-  skippedProfileIds: string[];
+  skippedProfiles: NonNullable<ReturnType<typeof useDiscoverProfilesQuery>['data']>;
+  hasMoreSkipped: boolean;
+  isLoadingSkipped: boolean;
+  loadMoreSkipped: () => Promise<void>;
+  refreshSkipped: () => Promise<void>;
   likedProfileIds: string[];
   likes: NonNullable<ReturnType<typeof useIncomingLikesQuery>['data']>;
   chats: NonNullable<ReturnType<typeof useChatsQuery>['data']>;
@@ -179,16 +220,19 @@ export type AppData = {
   refreshDiscoverProfiles: () => Promise<void>;
   refreshLikes: () => Promise<void>;
   refreshChats: () => Promise<void>;
+  refreshSettings: () => Promise<void>;
   loadEarlierChatMessages: (chatId: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
-  addProfilePhotos: (uris: string[]) => Promise<string[]>;
+  addProfilePhotos: (uris: string[]) => Promise<import('@/services/profile-photo-service').PhotoUploadResult[]>;
+  replaceProfilePhoto: (uri: string, previous: string) => Promise<string>;
   removeProfilePhoto: (uri: string) => Promise<void>;
   passProfile: (profileId: string) => Promise<void>;
   sendLike: (profileId: string, message: string) => Promise<boolean>;
   replyToLike: (likeId: string, message: string) => Promise<string | undefined>;
   dismissLike: (likeId: string) => Promise<void>;
-  sendChatMessage: (chatId: string, text: string) => Promise<void>;
+  sendChatMessage: (chatId: string, text: string, requestTargetId?: string) => Promise<void>;
   markChatRead: (chatId: string) => Promise<void>;
+  markLikesRead: (ids: string[]) => Promise<void>;
   purchaseCreditPack: (packId: string) => Promise<PurchaseOutcome>;
   purchaseSubscription: (planId: string) => Promise<PurchaseOutcome>;
   restorePurchases: () => Promise<void>;

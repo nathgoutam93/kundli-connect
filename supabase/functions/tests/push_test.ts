@@ -2,7 +2,7 @@
 import { sendPushToUser } from "../_shared/push.ts";
 import { rpcError } from "../_shared/supabase.ts";
 
-function fakeClient(opts: { settings?: Record<string, boolean> | null; tokens: { id: string; token: string }[] }) {
+function fakeClient(opts: { allowed?: boolean; settings?: Record<string, boolean> | null; tokens: { id: string; token: string }[] }) {
   const deleted: string[] = [];
   const builder = (_table: string) => {
     const q: any = {
@@ -13,7 +13,7 @@ function fakeClient(opts: { settings?: Record<string, boolean> | null; tokens: {
     };
     return q;
   };
-  return { client: { from: builder } as any, deleted };
+  return { client: { from: builder, rpc: async () => ({ data: opts.allowed ?? true, error: null }) } as any, deleted };
 }
 
 const sent: unknown[] = [];
@@ -27,8 +27,22 @@ globalThis.fetch = (async (_url: string, init: RequestInit) => {
 Deno.test("sends to valid tokens and prunes unregistered ones", async () => {
   const { client, deleted } = fakeClient({ tokens: [
     { id: "1", token: "ExponentPushToken[abc]" }, { id: "2", token: "ExponentPushToken[dead]" }, { id: "3", token: "garbage" } ] });
-  const result = await sendPushToUser(client, { recipientUserId: "u", title: "t", body: "b", data: { type: "message" } });
+  const result = await sendPushToUser(client, { senderUserId: "s", recipientUserId: "u", title: "t", body: "b", data: { type: "message", chatId: "c" } });
   if (result.sent !== 1 || result.invalidTokens !== 1 || deleted.join() !== "2") throw new Error(JSON.stringify({ result, deleted }));
+});
+
+Deno.test("suppresses a queued social push after a block or an ended chat", async () => {
+  const before = sent.length;
+  const { client } = fakeClient({ allowed: false, tokens: [{ id: "1", token: "ExponentPushToken[abc]" }] });
+  const result = await sendPushToUser(client, { senderUserId: "s", recipientUserId: "u", title: "t", body: "b", data: { type: "message", chatId: "c" } });
+  if (!("suppressed" in result) || sent.length !== before) throw new Error("unauthorized push sent");
+});
+
+Deno.test("fails closed when a social push has no actor", async () => {
+  const before = sent.length;
+  const { client } = fakeClient({ tokens: [{ id: "1", token: "ExponentPushToken[abc]" }] });
+  await sendPushToUser(client, { recipientUserId: "u", title: "t", body: "b", data: { type: "message" } });
+  if (sent.length !== before) throw new Error("actor-less social push sent");
 });
 
 Deno.test("respects disabled notification settings", async () => {
@@ -39,8 +53,9 @@ Deno.test("respects disabled notification settings", async () => {
 });
 
 Deno.test("maps SQL errcodes to HTTP statuses", () => {
-  const cases: [string, number][] = [["P0002", 404], ["22023", 400], ["28000", 401], ["XX000", 500]];
+  const cases: [string, number][] = [["P0002", 404], ["22023", 400], ["28000", 401], ["P0402", 402], ["P0429", 429], ["40001",409], ["XX000", 500]];
   for (const [code, status] of cases) {
     if (rpcError({ code, message: "x" }).status !== status) throw new Error(`${code} -> ${status}`);
   }
+  if (rpcError({ code: "XX000", message: "secret database details" }).message.includes("secret")) throw new Error("internal details leaked");
 });

@@ -23,8 +23,8 @@ export default function DrinkSmokeScreen() {
   );
   const isValid = Boolean(drinking) && Boolean(smoking);
 
-  function handleContinue() {
-    updateProfile({
+  async function handleContinue() {
+    await updateProfile({
       drinking,
       drinkingVisibleOnProfile,
       smoking,

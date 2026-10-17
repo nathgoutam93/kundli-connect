@@ -1,4 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { flattenListBy, type ListCursor } from '@/lib/list-pages';
 
 import { getSupabaseClient } from '@/lib/supabase';
 import { queryKeys } from '@/lib/query-keys';
@@ -16,9 +17,12 @@ import {
 
 export function useBlockedUsersQuery() {
   const { user } = useAuth();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.blockedUsers(user?.id ?? 'anonymous'),
-    queryFn: getBlockedUsers,
+    queryFn: ({ pageParam }) => getBlockedUsers(pageParam),
+    initialPageParam:undefined as ListCursor | undefined,
+    getNextPageParam:(page) => page.nextCursor,
+    select:(data) => flattenListBy(data,(person) => person.userId),
     enabled: Boolean(user),
   });
 }
@@ -34,7 +38,7 @@ export function useSafetyActions() {
 
   function refreshPeople() {
     return Promise.all(
-      [queryKeys.discoverProfiles(id), queryKeys.incomingLikes(id), queryKeys.chatPreviews(id), queryKeys.blockedUsers(id)].map(
+      [queryKeys.discoverProfiles(id), queryKeys.skippedProfiles(id), queryKeys.incomingLikes(id), queryKeys.chatPreviews(id), queryKeys.blockedUsers(id),queryKeys.unreadCounts(id)].map(
         (queryKey) => client.invalidateQueries({ queryKey })
       )
     );
@@ -59,10 +63,12 @@ export function useSafetyActions() {
       await unmatchChat(chatId);
       client.removeQueries({ queryKey: queryKeys.chatMessages(id, chatId) });
       await client.invalidateQueries({ queryKey: queryKeys.chatPreviews(id) });
+      await client.invalidateQueries({ queryKey: queryKeys.unreadCounts(id) });
     },
     setHidden: async (chatId: string, hidden: boolean) => {
       await setChatHidden(chatId, hidden);
       await client.invalidateQueries({ queryKey: queryKeys.chatPreviews(id) });
+      await client.invalidateQueries({ queryKey: queryKeys.unreadCounts(id) });
     },
     deleteAccount: async () => {
       await deleteAccount();

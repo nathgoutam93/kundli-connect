@@ -7,6 +7,7 @@ import { Alert } from 'react-native';
 
 import { CelestialTabBar } from '@/components/tab-bar';
 import { FullScreenLoader } from '@/components/ui/loader';
+import { ProfileLoadError } from '@/components/profile-load-error';
 import { colors } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
 import { useNotificationRouting } from '@/hooks/use-notification-routing';
@@ -24,12 +25,10 @@ function badgeValue(count: number) {
 }
 
 export default function MainTabsLayout() {
-  const { isHydrated, isAuthenticated, hasCompletedOnboarding, profile, likes, chats } = useAppData();
-  const unreadLikes = likes.filter((like) => !like.readAt).length;
-  const unreadMessages = chats.reduce((total, chat) => total + (chat.hidden ? 0 : chat.unreadCount), 0);
+  const { isHydrated, isAuthenticated, profileError, refreshProfile, hasCompletedOnboarding, profile, unreadLikes,unreadMessages } = useAppData();
   const hasCheckedNotificationPromptRef = useRef(false);
   useRealtimeSync();
-  useNotificationRouting(isHydrated && isAuthenticated && hasCompletedOnboarding);
+  useNotificationRouting(isHydrated && isAuthenticated && !profileError && hasCompletedOnboarding, profile.id);
 
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !hasCompletedOnboarding || hasCheckedNotificationPromptRef.current) {
@@ -41,7 +40,12 @@ export default function MainTabsLayout() {
     async function promptForNotificationsIfNeeded() {
       const permissions = await Notifications.getPermissionsAsync();
 
-      if (permissions.granted || !permissions.canAskAgain) {
+      if (permissions.granted) {
+        // Refresh the installation record for returning users as well as new sign-ins.
+        await registerCurrentUserPushToken({ requestPermission: false });
+        return;
+      }
+      if (!permissions.canAskAgain) {
         return;
       }
 
@@ -84,6 +88,8 @@ export default function MainTabsLayout() {
   if (!isHydrated) {
     return <FullScreenLoader />;
   }
+
+  if (isAuthenticated && profileError) return <ProfileLoadError onRetry={refreshProfile} />;
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)/welcome" />;

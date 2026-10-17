@@ -49,12 +49,12 @@ export default function HeightScreen() {
         }
     }
 
-    function handleContinue() {
+    async function handleContinue() {
         if (!selectedValue) {
             return;
         }
 
-        updateProfile({ height: selectedValue });
+        await updateProfile({ height: selectedValue });
         router.push('/(onboarding)/work');
     }
 

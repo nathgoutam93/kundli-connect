@@ -1,12 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Modal, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, FlatList, Modal, ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompatibilityHero, CompatibilityReport, getMatchReport } from '@/components/compatibility-report';
+import { LoadErrorNotice } from '@/components/load-error-notice';
+import { ListMoreButton } from '@/components/list-more-button';
 import { ProfileView } from '@/components/profile-view';
 import { ReportSheet } from '@/components/report-sheet';
 import { AppText } from '@/components/ui/app-text';
@@ -23,6 +25,8 @@ import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { type LikeItem } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
 import { useRefreshControl } from '@/hooks/use-refresh-control';
+import { useLikeReadTracking } from '@/hooks/use-like-read-tracking';
+import { useScreenFocused } from '@/hooks/use-screen-focused';
 import { haptics } from '@/lib/haptics';
 import { listItemEntering, listItemLayout } from '@/lib/list-motion';
 
@@ -35,7 +39,11 @@ const SCORE_TABS = [
 
 export default function LikesScreen() {
     const router = useRouter();
-    const { likes, isLoadingLikes, profile, refreshLikes, replyToLike, dismissLike } = useAppData();
+    const { likes, likesError, isLoadingLikes, profile, refreshLikes, replyToLike, dismissLike, markLikesRead,hasMoreLikes,isLoadingMoreLikes,loadMoreLikes } = useAppData();
+    const focused = useScreenFocused();
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const readTracking = useLikeReadTracking(likes, focused && !likesError && !isPreviewOpen, markLikesRead);
+    const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50, minimumViewTime: 300 }).current;
     const refreshControl = useRefreshControl(refreshLikes);
     const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
     const [sendingReplyIds, setSendingReplyIds] = useState<Record<string, boolean>>({});
@@ -72,7 +80,7 @@ export default function LikesScreen() {
                         chatId,
                         name: like.fromName,
                         avatarUrl: like.avatarUrl,
-                        score: String(like.compatibility.overallScore ?? ''),
+                        score: String(like.compatibility?.overallScore ?? ''),
                     },
                 });
             } else {
@@ -101,15 +109,23 @@ export default function LikesScreen() {
                         : undefined
                 }
             />
+            {likesError ? <LoadErrorNotice subject="likes" onRetry={refreshLikes} /> : null}
+            {readTracking.error ? <LoadErrorNotice subject="likes read status" onRetry={readTracking.retry} /> : null}
             {likes.length === 0 && isLoadingLikes ? (
                 <LikesSkeleton />
             ) : likes.length > 0 ? (
-                <ScrollView
+                <FlatList
+                    data={likes}
+                    keyExtractor={(like) => like.id}
+                    extraData={{ replyDrafts, sendingReplyIds, profile }}
+                    onViewableItemsChanged={readTracking.onViewableItemsChanged}
+                    viewabilityConfig={viewabilityConfig}
+                    ListFooterComponent={<ListMoreButton hasMore={hasMoreLikes} loading={isLoadingMoreLikes} onLoad={loadMoreLikes} />}
                     contentContainerStyle={styles.list}
                     keyboardShouldPersistTaps="handled"
                     refreshControl={refreshControl}
-                    showsVerticalScrollIndicator={false}>
-                    {likes.map((like, index) => (
+                    showsVerticalScrollIndicator={false}
+                    renderItem={({ item: like, index }) => (
                         // No exit animation: the card owns the open score modal, which must close with it.
                         <Animated.View key={like.id} entering={listItemEntering(index)} layout={listItemLayout}>
                             <LikeCard
@@ -121,11 +137,12 @@ export default function LikesScreen() {
                                 onChangeReply={(value) => updateReply(like.id, value)}
                                 onDismiss={() => dismissLike(like.id)}
                                 onReply={() => sendReply(like.id)}
+                                onPreviewVisibilityChange={setIsPreviewOpen}
                             />
                         </Animated.View>
-                    ))}
-                </ScrollView>
-            ) : (
+                    )}
+                />
+            ) : likesError ? null : (
                 <ScrollView contentContainerStyle={styles.emptyContent} refreshControl={refreshControl}>
                     <EmptyState
                         icon="heart-outline"
@@ -147,6 +164,7 @@ function LikeCard({
     onChangeReply,
     onDismiss,
     onReply,
+    onPreviewVisibilityChange,
 }: {
     like: LikeItem;
     reply: string;
@@ -156,8 +174,14 @@ function LikeCard({
     onChangeReply: (value: string) => void;
     onDismiss: () => void;
     onReply: () => void;
+    onPreviewVisibilityChange: (visible: boolean) => void;
 }) {
     const [isScoreOpen, setIsScoreOpen] = useState(false);
+    useEffect(() => {
+        if (!isScoreOpen) return;
+        onPreviewVisibilityChange(true);
+        return () => onPreviewVisibilityChange(false);
+    }, [isScoreOpen, onPreviewVisibilityChange]);
     const isUnread = !like.readAt;
 
     return (
@@ -177,7 +201,7 @@ function LikeCard({
                 </View>
                 <View style={styles.scoreBadge}>
                     <AppText color={colors.accent} style={styles.scoreBadgeValue}>
-                        {like.compatibility.overallScore}%
+                        {like.compatibility ? `${like.compatibility.overallScore}%` : '—'}
                     </AppText>
                     <AppText variant="caption" color={colors.textFaint}>
                         match
@@ -247,14 +271,14 @@ function KundaliScorePreview({
     const [activeTab, setActiveTab] = useState<ScoreModalTab>('score');
     const safeViewerName = viewerName === 'New User' ? 'You' : viewerName;
     const profile = buildLikeProfile(like);
-    const scores = like.compatibility.breakdown ?? [];
-    const overallScore = like.compatibility.overallScore ?? 0;
+    const scores = like.compatibility?.breakdown ?? [];
+    const overallScore = like.compatibility?.overallScore;
     const summary =
         getMatchReport(like.compatibility) ??
-        like.compatibility.summary ??
-        `${safeViewerName} and ${likedName}'s charts show a balanced opening for conversation and steady emotional rhythm.`;
-    const yogas = like.compatibility.yogas ?? [];
-    const doshas = like.compatibility.doshas ?? [];
+        like.compatibility?.summary ??
+        'Compatibility report unavailable.';
+    const yogas = like.compatibility?.yogas ?? [];
+    const doshas = like.compatibility?.doshas ?? [];
     const [isReplyComposerOpen, setIsReplyComposerOpen] = useState(false);
     const [isReportOpen, setIsReportOpen] = useState(false);
     const canReply = reply.trim().length > 0;
@@ -309,14 +333,14 @@ function KundaliScorePreview({
                                     {safeViewerName} & {likedName}
                                 </AppText>
                             </View>
-                            <CompatibilityHero
+                            {overallScore !== undefined ? <CompatibilityHero
                                 score={overallScore}
                                 viewerName={safeViewerName}
                                 viewerPhotoUri={viewerPhotoUri}
                                 partnerName={likedName}
                                 partnerPhotoUri={likedPhotoUri}
-                            />
-                            <CompatibilityReport summary={summary} yogas={yogas} doshas={doshas} breakdown={scores} />
+                            /> : <AppText align="center">Compatibility report unavailable.</AppText>}
+                            {like.compatibility ? <CompatibilityReport summary={summary} yogas={yogas} doshas={doshas} breakdown={scores} /> : null}
                         </>
                     ) : (
                         <ProfileView profile={profile} />
@@ -404,12 +428,12 @@ function buildLikeProfile(like: LikeItem) {
         name: like.fromName,
         age: like.age,
         location: like.location,
-        bio: like.openingMessage,
+        bio: '',
         photos: [like.avatarUrl],
         details: [
             { label: 'location', icon: 'home-outline' as const, text: like.location },
             { label: 'intent', icon: 'heart-outline' as const, text: like.note },
-            { label: 'compatibility', icon: 'sparkles-outline' as const, text: `${like.compatibility.overallScore}% Kundli match` },
+            { label: 'compatibility', icon: 'sparkles-outline' as const, text: like.compatibility ? `${like.compatibility.overallScore}% Kundli match` : 'Compatibility unavailable' },
         ],
     };
 }

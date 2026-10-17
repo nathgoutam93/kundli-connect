@@ -1,8 +1,11 @@
 export const queryKeys = {
   user: (userId: string) => ['user', userId] as const,
   profile: (userId: string) => [...queryKeys.user(userId), 'profile'] as const,
+  publicProfile: (userId: string) => [...queryKeys.user(userId), 'public-profile'] as const,
+  unreadCounts: (userId: string) => [...queryKeys.user(userId), 'unread-counts'] as const,
   kundli: (userId: string) => [...queryKeys.user(userId), 'kundli'] as const,
   discoverProfiles: (userId: string) => [...queryKeys.user(userId), 'discover-profiles'] as const,
+  skippedProfiles: (userId: string) => [...queryKeys.user(userId), 'skipped-profiles'] as const,
   incomingLikes: (userId: string) => [...queryKeys.user(userId), 'incoming-likes'] as const,
   sentLikes: (userId: string) => [...queryKeys.user(userId), 'sent-likes'] as const,
   chatPreviews: (userId: string) => [...queryKeys.user(userId), 'chat-previews'] as const,

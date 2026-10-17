@@ -6,6 +6,9 @@ const supabasePublishableKey =
   process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.EXPO_PUBLIC_SUPABASE_KEY;
 
 const memoryStorage = new Map<string, string>();
+let clearingSession = false;
+const authStorageKey = supabaseUrl ? `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token` : '';
+const isSessionKey = (key: string) => key === authStorageKey || key.startsWith(`${authStorageKey}-`);
 
 function warnSecureStoreFallback(operation: string, error: unknown) {
   if (__DEV__) {
@@ -15,14 +18,18 @@ function warnSecureStoreFallback(operation: string, error: unknown) {
 
 const safeAuthStorage = {
   getItem: async (key: string) => {
+    if (clearingSession && isSessionKey(key)) return null;
     try {
-      return await SecureStore.getItemAsync(key);
+      const value = await SecureStore.getItemAsync(key);
+      return clearingSession && isSessionKey(key) ? null : value;
     } catch (error) {
       warnSecureStoreFallback('getItem', error);
       return memoryStorage.get(key) ?? null;
     }
   },
   setItem: async (key: string, value: string) => {
+    // Ignore a refresh that was already running when logout began.
+    if (clearingSession && isSessionKey(key)) return;
     memoryStorage.set(key, value);
 
     try {
@@ -52,6 +59,7 @@ export function getSupabaseClient() {
   client ??= createClient(supabaseUrl, supabasePublishableKey, {
     auth: {
       storage: safeAuthStorage,
+      storageKey: authStorageKey,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
@@ -62,4 +70,25 @@ export function getSupabaseClient() {
   });
 
   return client;
+}
+
+/** Remove persisted credentials before calling the SDK, so it never refreshes/revokes over the network to log out. */
+export async function clearLocalAuthSession() {
+  const supabase = getSupabaseClient();
+  const stored = await safeAuthStorage.getItem(authStorageKey);
+  let accessToken: string | undefined;
+  try { accessToken = stored ? JSON.parse(stored).access_token : undefined; } catch { /* Invalid sessions are removed too. */ }
+  clearingSession = true;
+  try {
+    await supabase.auth.stopAutoRefresh();
+    await Promise.all([authStorageKey, `${authStorageKey}-user`, `${authStorageKey}-code-verifier`].map((key) => safeAuthStorage.removeItem(key)));
+    // The SDK reads an empty session and emits SIGNED_OUT through its public API.
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
+    if (error) throw error;
+  } finally {
+    clearingSession = false;
+    // Keep automatic refresh available for the next sign-in in this app process.
+    await supabase.auth.startAutoRefresh();
+  }
+  return accessToken;
 }

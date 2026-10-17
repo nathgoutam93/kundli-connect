@@ -1,7 +1,14 @@
-import { AppleMaps, GoogleMaps } from 'expo-maps';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Platform, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors } from '@/constants/theme';
+
+// expo-maps throws at import time when its native module is missing (e.g. Expo Go),
+// so only load it once we know the module is linked into the binary.
+const ExpoMaps: typeof import('expo-maps') | null = requireOptionalNativeModule('ExpoMaps')
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('expo-maps')
+  : null;
 
 type Coordinate = {
   latitude: number;
@@ -40,14 +47,15 @@ function getCameraKey(region: Region) {
 }
 
 function GoogleBirthLocationMap({
+  maps,
   style,
   region,
   coordinate,
   markerTitle,
   onCoordinateChange,
-}: BirthLocationMapProps) {
+}: BirthLocationMapProps & { maps: typeof import('expo-maps') }) {
   return (
-    <GoogleMaps.View
+    <maps.GoogleMaps.View
       key={getCameraKey(region)}
       style={style}
       cameraPosition={regionToCameraPosition(region)}
@@ -73,14 +81,15 @@ function GoogleBirthLocationMap({
 }
 
 function AppleBirthLocationMap({
+  maps,
   style,
   region,
   coordinate,
   markerTitle,
   onCoordinateChange,
-}: BirthLocationMapProps) {
+}: BirthLocationMapProps & { maps: typeof import('expo-maps') }) {
   return (
-    <AppleMaps.View
+    <maps.AppleMaps.View
       key={getCameraKey(region)}
       style={style}
       cameraPosition={regionToCameraPosition(region)}
@@ -102,5 +111,13 @@ function AppleBirthLocationMap({
 }
 
 export function BirthLocationMap(props: BirthLocationMapProps) {
-  return Platform.OS === 'ios' ? <AppleBirthLocationMap {...props} /> : <GoogleBirthLocationMap {...props} />;
+  if (!ExpoMaps) {
+    return null;
+  }
+
+  return Platform.OS === 'ios' ? (
+    <AppleBirthLocationMap maps={ExpoMaps} {...props} />
+  ) : (
+    <GoogleBirthLocationMap maps={ExpoMaps} {...props} />
+  );
 }

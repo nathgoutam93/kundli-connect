@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { ProfileImage } from '@/components/profile-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { OnboardingStep } from '@/components/onboarding-step';
+import { Button } from '@/components/ui/button';
 import { AppText } from '@/components/ui/app-text';
 import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, space } from '@/constants/theme';
@@ -21,6 +22,7 @@ export default function PhotosScreen() {
   const { width } = useWindowDimensions();
   const [selectedPhotoUris, setSelectedPhotoUris] = useState(() => (profile.photoUris ?? []).slice(0, MAX_PHOTOS));
   const [uploadingPhotoUris, setUploadingPhotoUris] = useState<Set<string>>(() => new Set());
+  const [failedUris, setFailedUris] = useState<string[]>([]);
   const isUploadingPhotos = uploadingPhotoUris.size > 0;
   const canContinue = selectedPhotoUris.length >= MIN_PHOTOS && !isUploadingPhotos;
   const slotWidth = (width - gutter * 2 - GRID_GAP * 2) / 3;
@@ -63,30 +65,37 @@ export default function PhotosScreen() {
       return;
     }
 
-    setSelectedPhotoUris((current) => [...current, ...optimisticUris].slice(0, MAX_PHOTOS));
-    setUploadingPhotoUris(new Set(optimisticUris));
+    await uploadSelection(optimisticUris);
+  }
 
+  async function uploadSelection(uris: string[]) {
+    setSelectedPhotoUris((current) => [...new Set([...current, ...uris])].slice(0, MAX_PHOTOS));
+    setUploadingPhotoUris(new Set(uris));
     try {
-      const uploadedUris = await addProfilePhotos(optimisticUris);
-      if (uploadedUris.length !== optimisticUris.length) {
-        throw new Error('Some selected photos did not finish uploading.');
-      }
-
-      const uploadedByLocalUri = new Map(optimisticUris.map((uri, index) => [uri, uploadedUris[index]]));
-      setSelectedPhotoUris((current) =>
-        current.map((uri) => uploadedByLocalUri.get(uri) ?? uri).slice(0, MAX_PHOTOS)
-      );
+      const results = await addProfilePhotos(uris);
+      const saved = new Map(results.filter((item) => item.photoUri).map((item) => [item.localUri, item.photoUri!]));
+      const failed = results.filter((item) => !item.photoUri);
+      setSelectedPhotoUris((current) => [...new Set(current.flatMap((uri) =>
+        saved.has(uri) ? [saved.get(uri)!] : uris.includes(uri) ? [] : [uri]
+      ))].slice(0, MAX_PHOTOS));
+      setFailedUris(failed.map((item) => item.localUri));
+      if (failed.length) Alert.alert('Some photos need retrying', `${saved.size} saved. ${failed.length} failed. ${failed[0].error ?? 'Please try again.'}`);
     } catch (error) {
-      setSelectedPhotoUris((current) => current.filter((uri) => !optimisticUris.includes(uri)));
-      Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload the selected photos.');
+      setFailedUris(uris);
+      setSelectedPhotoUris((current) => current.filter((uri) => !uris.includes(uri)));
+      Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload photos.');
     } finally {
       setUploadingPhotoUris(new Set());
     }
   }
 
   async function handleRemovePhoto(uriToRemove: string) {
-    await removeProfilePhoto(uriToRemove);
-    setSelectedPhotoUris((current) => current.filter((uri) => uri !== uriToRemove));
+    try {
+      await removeProfilePhoto(uriToRemove);
+      setSelectedPhotoUris((current) => current.filter((uri) => uri !== uriToRemove));
+    } catch (error) {
+      Alert.alert('Could not remove photo', error instanceof Error ? error.message : 'Please try again.');
+    }
   }
 
   async function handleContinue() {
@@ -107,6 +116,8 @@ export default function PhotosScreen() {
       subtitle={`Add at least ${MIN_PHOTOS} photos. Your first photo is the one people see first.`}
       onContinue={handleContinue}
       canContinue={canContinue && !isServiceBusy}>
+      {failedUris.length ? <Button label={`Retry ${failedUris.length} failed photos`} disabled={isUploadingPhotos}
+        onPress={() => { void uploadSelection(failedUris); }} /> : null}
       <View style={styles.grid}>
         {PHOTO_SLOTS.map((slot) => {
           const photoUri = selectedPhotoUris[slot];
@@ -125,7 +136,7 @@ export default function PhotosScreen() {
               onPress={isServiceBusy || isUploadingPhotos ? undefined : handlePickPhotos}>
               {photoUri ? (
                 <>
-                  <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" transition={200} />
+                  <ProfileImage uri={photoUri} style={styles.photoPreview} contentFit="cover" transition={200} />
                   {slot === 0 ? (
                     <View style={styles.mainBadge}>
                       <AppText variant="caption" color={colors.onAccent}>

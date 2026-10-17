@@ -1,10 +1,18 @@
-import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { realCompatibility, realCompatibilityScore } from '@/lib/compatibility';
+import { functionError } from '@/lib/service-error';
 import { ageFromBirthDate } from '@/lib/age';
-import { getSupabaseClient } from '@/lib/supabase';
+import { photoReference } from '@/lib/profile-photos';
+import { profilePatch } from '@/lib/profile-patch';
+import { cursorArgs, listPage, type ListCursor, type ListPage } from '@/lib/list-pages';
+import type { MessagePage } from '@/lib/chat-cache';
+import { NAME_MAX_LENGTH } from '@/lib/profile-validation';
+import { confirmMessageRequest, getMessageRequestId } from '@/services/message-attempts';
+import { clearLocalAuthSession, getSupabaseClient } from '@/lib/supabase';
+import { finishRemoteLogout, queuePushRetirement, queueRegistrationRetirement, rememberPushRegistration, reconcilePushRetirements } from '@/services/push-registration-cleanup';
 import type {
   ChatMessage,
   ChatPreview,
@@ -56,6 +64,7 @@ type ProfileRow = {
   id: string;
   phone: string | null;
   email: string | null;
+  verified_email?: string | null;
   display_name: string | null;
   gender: string | null;
   gender_preferences: string[];
@@ -129,6 +138,7 @@ type ProfileCardRow = Pick<
 > & {
   age: number | null;
   photo_paths: string[] | null;
+  compatibility_report?: CompatibilityResult | null;
 };
 
 type IncomingLikeRow = {
@@ -136,6 +146,7 @@ type IncomingLikeRow = {
   from_user_id: string;
   opening_message: string | null;
   created_at: string;
+  read_at?: string | null;
   compatibility_report: CompatibilityResult | null;
   profile: ProfileCardRow | null;
 };
@@ -160,8 +171,8 @@ type KundliRow = {
   generated_at: string;
 };
 
-// Reads the locally persisted session. Unlike auth.getUser() this makes no network request;
-// the server still enforces identity through RLS on every query.
+// Reads the persisted session; the SDK may refresh expired credentials.
+// The server enforces identity through RLS on every query.
 async function getSessionUser() {
   const { data, error } = await getSupabaseClient().auth.getSession();
   if (error) throw error;
@@ -181,12 +192,14 @@ type MessageRow = {
   chat_id: string;
   sender_id: string;
   body: string;
+  client_request_id?: string | null;
   status: 'sent' | 'read';
   read_at: string | null;
   created_at: string;
 };
 
 type SentChatMessageResult = {
+  clientRequestId?: string;
   id: string;
   createdAt: string;
   senderId: 'me';
@@ -196,23 +209,6 @@ type SentChatMessageResult = {
 
 function maskPhone(phone: string) {
   return phone.replace(/.(?=.{4})/g, '*');
-}
-
-function toDatabaseDate(value: string) {
-  if (!value) {
-    return null;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
-
-  const match = value.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (!match) {
-    return null;
-  }
-
-  return `${match[3]}-${match[2]}-${match[1]}`;
 }
 
 function toProfileDate(value: string | null) {
@@ -226,52 +222,6 @@ function toProfileDate(value: string | null) {
   }
 
   return `${match[3]}-${match[2]}-${match[1]}`;
-}
-
-function getPhotoContentType(uri: string) {
-  const extension = uri.split('?')[0]?.split('.').pop()?.toLowerCase();
-
-  if (extension === 'png') {
-    return { extension, contentType: 'image/png' };
-  }
-
-  if (extension === 'webp') {
-    return { extension, contentType: 'image/webp' };
-  }
-
-  return { extension: 'jpg', contentType: 'image/jpeg' };
-}
-
-function base64ToArrayBuffer(base64: string) {
-  const binary = globalThis.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes.buffer;
-}
-
-function createCompatibility(profileId: string): CompatibilityResult {
-  const seed = [...profileId].reduce((total, char) => total + char.charCodeAt(0), 0);
-  const score = 72 + (seed % 19);
-
-  return {
-    id: `compat-${profileId}`,
-    generatedAt: new Date().toISOString(),
-    overallScore: score,
-    summary:
-      'your charts are ready for a kundli match once you initiate interest and generate the detailed score.',
-    yogas: ['Gajkesari', 'Dhan'],
-    doshas: score > 82 ? ['None prominent'] : ['Needs review'],
-    breakdown: [
-      { label: 'Guna Milan', value: Math.min(score + 6, 96) },
-      { label: 'Nadi Compatibility', value: Math.max(score - 8, 60) },
-      { label: 'Bhakoot/Rashi Matching', value: Math.min(score + 3, 98) },
-      { label: 'Overall Match', value: score },
-    ],
-  };
 }
 
 function timeAgo(value: string) {
@@ -309,7 +259,7 @@ function addDetail(details: ProfileDetail[], label: string, icon: ProfileDetail[
 }
 
 function profilePhotoUrl(storagePath: string) {
-  return getSupabaseClient().storage.from('profile-photos').getPublicUrl(storagePath).data.publicUrl;
+  return photoReference(storagePath);
 }
 
 function profileCardToDiscoverProfile(card: ProfileCardRow) {
@@ -361,7 +311,7 @@ function profileRowToDiscoverProfile(
     addDetail(details, 'smoking', 'cloud-outline', row.smoking);
   }
 
-  const bio = row.bio?.trim() || 'Looking for a meaningful connection.';
+  const bio = row.bio?.trim() || '';
 
   return {
     id: row.id,
@@ -369,12 +319,12 @@ function profileRowToDiscoverProfile(
     name,
     age: row.age ?? 0,
     gender: row.gender || '',
-    location: row.location || 'India',
+    location: row.location?.trim() && row.location !== 'India' ? row.location : 'City not set',
     bio,
     prompt: bio,
     photos,
     details,
-    compatibility: createCompatibility(row.id),
+    compatibility: realCompatibility(row.compatibility_report),
   };
 }
 
@@ -427,11 +377,11 @@ export async function ensureCurrentUserProfile() {
     throw new Error('No authenticated Supabase user found.');
   }
 
-  // Social sign-ins come with a name and email; use them so onboarding starts prefilled.
+  // Prefill contact information; only the database synchronizes verified email from Auth.
   // (The phone number is always taken from the verified session by the database.)
   const metadata = user.user_metadata ?? {};
   const displayName = [metadata.full_name, metadata.name].find(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0
+    (value): value is string => typeof value === 'string' && value.trim().length > 0 && Array.from(value.trim()).length <= NAME_MAX_LENGTH
   );
   const row = {
     id: user.id,
@@ -442,13 +392,7 @@ export async function ensureCurrentUserProfile() {
   const insertProfile = (values: typeof row) =>
     supabase.from('profiles').upsert(values, { onConflict: 'id', ignoreDuplicates: true });
 
-  let { error } = await insertProfile(row);
-
-  // profiles.email is unique; if another account already uses this address, create the
-  // profile without it rather than failing sign-in. The user can add an email in onboarding.
-  if (error?.code === '23505' && row.email) {
-    ({ error } = await insertProfile({ ...row, email: null }));
-  }
+  const { error } = await insertProfile(row);
 
   if (error) {
     throw error;
@@ -472,6 +416,7 @@ export async function getCurrentUserProfile() {
         'id',
         'phone',
         'email',
+        'verified_email',
         'display_name',
         'gender',
         'gender_preferences',
@@ -508,12 +453,13 @@ export async function getCurrentUserProfile() {
     )
     .eq('id', user.id)
     .order('sort_order', { referencedTable: 'profile_photos', ascending: true })
-    .single<Omit<ProfileRow, 'photo_urls'> & { profile_photos: Omit<ProfilePhotoRow, 'user_id'>[] | null }>();
+    .maybeSingle<Omit<ProfileRow, 'photo_urls'> & { profile_photos: Omit<ProfilePhotoRow, 'user_id'>[] | null }>();
 
   if (error) {
     throw error;
   }
 
+  if (!data) return null;
   const { profile_photos: photoRows, ...row } = data;
 
   return {
@@ -534,25 +480,49 @@ export async function getDiscoverProfiles() {
     .filter((profile): profile is DiscoverProfile => Boolean(profile));
 }
 
-export async function getPendingIncomingLikes() {
-  const { data, error } = await getSupabaseClient().rpc('get_incoming_likes');
+export async function getOwnPublicProfile() {
+  const user = await requireSessionUser();
+  const { data,error } = await getSupabaseClient().from('profile_cards').select('*').eq('id',user.id).single<ProfileCardRow>();
+  if (error) throw error;
+  const card = data ? profileCardToDiscoverProfile(data) : null;
+  if (!card) throw new Error('Could not load your profile preview.');
+  return card;
+}
+
+export type SkippedCursor = { createdAt: string; id: string };
+export async function getSkippedProfiles(before?: SkippedCursor) {
+  const limit = 50;
+  const { data, error } = await getSupabaseClient().rpc('get_skipped_profiles', {
+    p_limit: limit, p_before: before?.createdAt ?? null, p_before_id: before?.id ?? null,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as ProfileCardRow[];
+  const last = rows.at(-1);
+  return {
+    profiles: rows.map(profileCardToDiscoverProfile).filter((profile): profile is DiscoverProfile => Boolean(profile)),
+    nextCursor: rows.length === limit && last ? { createdAt: last.created_at, id: last.id } : undefined,
+  };
+}
+
+export async function getPendingIncomingLikes(before?: ListCursor) {
+  const { data, error } = await getSupabaseClient().rpc('get_incoming_likes_page',cursorArgs(before));
 
   if (error) {
     throw error;
   }
 
-  return ((data ?? []) as IncomingLikeRow[])
-    .map((like): LikeItem | null => {
+  return listPage((data ?? []) as IncomingLikeRow[],(like): LikeItem | null => {
       const fromProfile = like.profile ? profileCardToDiscoverProfile(like.profile) : null;
       if (!like.profile || !fromProfile) {
         return null;
       }
 
-      const compatibility = like.compatibility_report ?? createCompatibility(like.from_user_id);
+      const compatibility = realCompatibility(like.compatibility_report);
 
       return {
         id: like.id,
         createdAt: like.created_at,
+        readAt: like.read_at ?? undefined,
         fromProfileId: like.from_user_id,
         fromProfile: { ...fromProfile, compatibility },
         fromName: fromProfile.name,
@@ -560,12 +530,11 @@ export async function getPendingIncomingLikes() {
         location: fromProfile.location,
         avatarUrl: fromProfile.photos[0] ?? '',
         openingMessage: like.opening_message?.trim() || 'Sent you a like.',
-        note: like.profile.bio?.trim() || 'Interested in connecting.',
+        note: like.profile.bio?.trim() || '',
         timeAgo: timeAgo(like.created_at),
         compatibility,
       };
-    })
-    .filter((like): like is LikeItem => Boolean(like));
+    },(like) => ({ at:like.created_at,id:like.id }));
 }
 
 function mapMessageRow(message: MessageRow, currentUserId: string): ChatMessage {
@@ -576,6 +545,7 @@ function mapMessageRow(message: MessageRow, currentUserId: string): ChatMessage 
     createdAt: message.created_at,
     senderId: isMine ? 'me' : message.sender_id,
     text: message.body,
+    clientRequestId: message.client_request_id ?? undefined,
     status: message.status,
     ...(isMine && message.status === 'read' && message.read_at ? { seenAt: message.read_at } : {}),
     ...(!isMine && message.read_at ? { readAt: message.read_at } : {}),
@@ -585,39 +555,32 @@ function mapMessageRow(message: MessageRow, currentUserId: string): ChatMessage 
 async function getChatMessagesPage(
   chatId: string,
   currentUserId: string,
-  options?: { before?: string; limit?: number }
+  options?: { before?: ListCursor; limit?: number }
 ) {
   const supabase = getSupabaseClient();
-  const limit = options?.limit ?? 30;
-  let query = supabase
-    .from('messages')
-    .select('id, chat_id, sender_id, body, status, read_at, created_at')
-    .eq('chat_id', chatId)
-    .order('created_at', { ascending: false });
-
-  if (options?.before) {
-    query = query.lt('created_at', options.before);
-  }
-
-  const { data, error } = await query.limit(limit + 1).returns<MessageRow[]>();
+  const limit = Math.max(1, Math.min(99, Math.floor(options?.limit ?? 30)));
+  const { data, error } = await supabase.rpc('get_chat_messages_page',{
+    p_chat_id:chatId,...cursorArgs(options?.before),p_limit:Math.min(limit,99)+1,
+  });
 
   if (error) {
     throw error;
   }
 
-  const rows = data ?? [];
+  const rows = (data ?? []) as MessageRow[];
   const pageRows = rows.slice(0, limit).reverse();
 
   return {
     messages: pageRows.map((message) => mapMessageRow(message, currentUserId)),
     hasMoreMessages: rows.length > limit,
+    nextCursor:rows.length > limit && pageRows[0] ? { at:pageRows[0].created_at,id:pageRows[0].id } : undefined,
   };
 }
 
 export async function getChatMessages(
   chatId: string,
-  options?: { before?: string; limit?: number }
-) {
+  options?: { before?: ListCursor; limit?: number }
+): Promise<MessagePage> {
   const user = await getSessionUser();
 
   if (!user) {
@@ -627,25 +590,35 @@ export async function getChatMessages(
   return getChatMessagesPage(chatId, user.id, options);
 }
 
-export async function getChats() {
+export async function getChats(chatId?: string, before?: ListCursor): Promise<ListPage<ChatPreview>> {
   const user = await getSessionUser();
 
   if (!user) {
-    return [];
+    return { items:[] };
   }
 
-  const { data, error } = await getSupabaseClient().rpc('get_chat_previews');
+  let resolvedId = chatId;
+  if (chatId) {
+    const resolved = await getSupabaseClient().rpc('resolve_chat_id', { p_chat_id: chatId });
+    if (resolved.error) throw resolved.error;
+    if (resolved.data === null) return { items: [] };
+    if (typeof resolved.data !== 'string') throw new Error('Chat could not be loaded.');
+    resolvedId = resolved.data;
+  }
+  const { data, error } = await getSupabaseClient().rpc('get_chat_previews_page',{
+    ...cursorArgs(before),p_chat_id:resolvedId ?? null,...(chatId ? { p_limit:1 } : {}),
+  });
 
   if (error) {
     throw error;
   }
 
-  return ((data ?? []) as ChatPreviewRow[]).map((chat): ChatPreview => {
+  return listPage((data ?? []) as ChatPreviewRow[],(chat): ChatPreview => {
     const participantProfile = chat.participant ? profileCardToDiscoverProfile(chat.participant) : null;
     const lastMessage = chat.last_message
       ? mapMessageRow({ ...chat.last_message, chat_id: chat.id }, user.id)
       : null;
-    const compatibility = chat.compatibility_report;
+    const compatibility = realCompatibility(chat.compatibility_report);
 
     return {
       id: chat.id,
@@ -658,31 +631,38 @@ export async function getChats() {
       lastMessage: lastMessage?.text ?? 'Start the conversation',
       unreadCount: chat.unread_count,
       hidden: chat.hidden,
-      compatibilityScore: compatibility?.overallScore ?? createCompatibility(chat.participant_id).overallScore,
+      compatibilityScore: realCompatibilityScore(chat.compatibility_report),
       ...(compatibility ? { compatibility } : {}),
       hasMoreMessages: false,
       messages: lastMessage ? [lastMessage] : [],
     };
-  });
+  },(chat) => ({ at:chat.updated_at,id:chat.id }));
 }
 
-export async function sendMessage(chatId: string, text: string) {
+export async function sendMessage(chatId: string, text: string, pendingRequestId?: string, expectedUserId?: string) {
   const supabase = getSupabaseClient();
+  const user = await requireSessionUser();
+  if (expectedUserId && user.id !== expectedUserId) throw new Error('Your session changed. Please sign in again.');
+  const attempt = { userId: user.id, kind: 'send' as const, targetId: chatId, text };
+  const requestId = pendingRequestId ?? await getMessageRequestId(attempt);
   const { data, error } = await supabase.functions.invoke<{ message: SentChatMessageResult }>('send-chat-message', {
     body: {
       chatId,
       text,
+      requestId,
+      expectedUserId: user.id,
     },
   });
 
   if (error) {
-    throw error;
+    throw await functionError(error);
   }
 
   const message = data?.message ?? null;
-  if (!message) {
+  if (!message || message.clientRequestId !== requestId) {
     throw new Error('Message send did not return a message record.');
   }
+  await confirmMessageRequest(attempt,requestId);
 
   return {
     id: message.id,
@@ -690,6 +670,7 @@ export async function sendMessage(chatId: string, text: string) {
     senderId: 'me',
     text: message.text,
     status: message.status ?? 'sent',
+    clientRequestId: requestId,
   } satisfies ChatMessage;
 }
 
@@ -713,14 +694,15 @@ export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProf
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     name: row.display_name || profile.name,
-    email: row.email || profile.email,
+    email: row.email ?? '',
+    verifiedEmail: row.verified_email ?? '',
     dateOfBirth: toProfileDate(row.date_of_birth) || profile.dateOfBirth,
     age: ageFromBirthDate(toProfileDate(row.date_of_birth) || profile.dateOfBirth),
     timeOfBirth: row.time_of_birth || profile.timeOfBirth,
     gender: row.gender || profile.gender,
     genderPreferences: row.gender_preferences ?? profile.genderPreferences,
     height: row.height || profile.height,
-    location: row.location || profile.location,
+    location: row.location?.trim() && row.location !== 'India' ? row.location : '',
     bio: row.bio || profile.bio,
     familyPlans: row.family_plans || profile.familyPlans,
     familyPlansVisibleOnProfile: row.family_plans_visible_on_profile,
@@ -747,56 +729,24 @@ export function applyProfileRow(profile: UserProfile, row: ProfileRow): UserProf
   };
 }
 
-function toNullableNumber(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export async function updateCurrentUserProfile(profile: UserProfile, options?: { onboardingCompleted?: boolean }) {
+export async function updateCurrentUserProfile(
+  updates: Partial<UserProfile>,
+  options?: { onboardingCompleted?: boolean; expectedUserId?: string; expectedUpdatedAt?: string }
+) {
   const supabase = getSupabaseClient();
   const user = await requireSessionUser();
-
-  const updates = {
-    id: user.id,
-    email: profile.email || user.email || null,
-    display_name: profile.name || null,
-    gender: profile.gender || null,
-    gender_preferences: profile.genderPreferences ?? [],
-    height: profile.height || null,
-    date_of_birth: toDatabaseDate(profile.dateOfBirth),
-    time_of_birth: profile.timeOfBirth || null,
-    birth_place: profile.birthPlace || null,
-    birth_latitude: toNullableNumber(profile.birthLatitude),
-    birth_longitude: toNullableNumber(profile.birthLongitude),
-    birth_timezone: profile.birthTimezone || null,
-    location: profile.location || null,
-    bio: profile.bio || null,
-    family_plans: profile.familyPlans || null,
-    family_plans_visible_on_profile: profile.familyPlansVisibleOnProfile,
-    workplace: profile.workplace || null,
-    workplace_visible_on_profile: profile.workplaceVisibleOnProfile,
-    job_role: profile.jobRole || null,
-    job_role_visible_on_profile: profile.jobRoleVisibleOnProfile,
-    school: profile.school || null,
-    school_visible_on_profile: profile.schoolVisibleOnProfile,
-    education_level: profile.educationLevel || null,
-    education_level_visible_on_profile: profile.educationLevelVisibleOnProfile,
-    religious_beliefs: profile.religiousBeliefs || null,
-    drinking: profile.drinking || null,
-    drinking_visible_on_profile: profile.drinkingVisibleOnProfile,
-    smoking: profile.smoking || null,
-    smoking_visible_on_profile: profile.smokingVisibleOnProfile,
-    updated_at: new Date().toISOString(),
-    ...(options?.onboardingCompleted === undefined
-      ? {}
-      : { onboarding_completed: options.onboardingCompleted }),
-  };
-
-  const { error } = await supabase.from('profiles').upsert(updates, { onConflict: 'id' });
-
-  if (error) {
-    throw error;
+  if (options?.expectedUserId && user.id !== options.expectedUserId) {
+    throw new Error('Your session changed. Please try again.');
   }
+  const { error } = await supabase.rpc('update_profile_fields', {
+    p_updates: profilePatch(updates),
+    p_expected_updated_at: options?.expectedUpdatedAt,
+    p_complete_onboarding: options?.onboardingCompleted ?? false,
+  });
+  if (error) throw error;
+  const row = await getCurrentUserProfile();
+  if (!row || row.id !== user.id) throw new Error('Your session changed. Please reload your profile.');
+  return row;
 }
 
 export async function generateCurrentUserKundli() {
@@ -804,7 +754,7 @@ export async function generateCurrentUserKundli() {
   const { data, error } = await supabase.functions.invoke<{ parsed_summary: KundliSummary }>('generate-kundli');
 
   if (error) {
-    throw error;
+    throw await functionError(error);
   }
 
   if (!data?.parsed_summary) {
@@ -814,24 +764,24 @@ export async function generateCurrentUserKundli() {
   return data.parsed_summary;
 }
 
-export async function generateMatchScore(targetProfileId: string) {
+export async function generateMatchScore(targetProfileId: string, expectedUserId?: string) {
   const supabase = getSupabaseClient();
+  const user = await requireSessionUser();
+  if (expectedUserId && user.id !== expectedUserId) throw new Error('Your session changed. Please sign in again.');
   const { data, error } = await supabase.functions.invoke<{ compatibility: CompatibilityResult }>(
     'generate-match-score',
     {
-      body: { targetProfileId },
+      body: { targetProfileId, expectedUserId: user.id },
     }
   );
 
   if (error) {
-    throw error;
+    throw await functionError(error);
   }
 
-  if (!data?.compatibility) {
-    throw new Error('Match-making did not return a compatibility report.');
-  }
-
-  return data.compatibility;
+  const compatibility = realCompatibility(data?.compatibility);
+  if (!compatibility) throw new Error('A compatibility report is not available. Please try again.');
+  return compatibility;
 }
 
 export async function createLike(targetProfileId: string, openingMessage: string) {
@@ -841,7 +791,7 @@ export async function createLike(targetProfileId: string, openingMessage: string
   });
 
   if (error) {
-    throw error;
+    throw await functionError(error);
   }
 
   if (!data?.like) {
@@ -851,19 +801,24 @@ export async function createLike(targetProfileId: string, openingMessage: string
   return data.like;
 }
 
-export async function replyToLike(likeId: string, message: string) {
+export async function replyToLike(likeId: string, message: string, expectedUserId?: string) {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase.functions.invoke<{ chatId: string }>('reply-to-like', {
-    body: { likeId, message },
+  const user = await requireSessionUser();
+  if (expectedUserId && user.id !== expectedUserId) throw new Error('Your session changed. Please sign in again.');
+  const attempt = { userId: user.id, kind: 'reply' as const, targetId: likeId, text: message };
+  const requestId = await getMessageRequestId(attempt);
+  const { data, error } = await supabase.functions.invoke<{ chatId: string; requestId: string }>('reply-to-like', {
+    body: { likeId, message, requestId, expectedUserId: user.id },
   });
 
   if (error) {
-    throw error;
+    throw await functionError(error);
   }
 
-  if (!data?.chatId) {
+  if (!data?.chatId || data.requestId !== requestId) {
     throw new Error('Reply did not return a chat.');
   }
+  await confirmMessageRequest(attempt,requestId);
 
   return data.chatId;
 }
@@ -872,12 +827,19 @@ function getExpoProjectId() {
   return Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
 }
 
+let pushRegistrationEpoch = 0;
+
 export async function registerCurrentUserPushToken(
   options: { requestPermission?: boolean } = {}
 ): Promise<PushTokenRegistration | null> {
   const supabase = getSupabaseClient();
-  // upsert_own_push_token reads auth.uid() itself; this just fails fast when signed out.
-  await requireSessionUser();
+  const epoch = pushRegistrationEpoch;
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  const session = sessionData.session;
+  if (!session) return null;
+  const user = session.user;
+  await reconcilePushRetirements(user.id);
 
   const existingPermission = await Notifications.getPermissionsAsync();
   let isGranted = existingPermission.granted;
@@ -907,45 +869,27 @@ export async function registerCurrentUserPushToken(
   const platform = Platform.OS;
   const now = new Date().toISOString();
 
-  const { error } = await supabase.rpc('upsert_own_push_token', {
+  if (epoch !== pushRegistrationEpoch) return null;
+  const registration = { userId: user.id, token, updatedAt: now };
+  const { error } = await supabase.rpc('register_push_token_for_session', {
     p_token: token,
     p_platform: platform,
     p_token_type: 'expo',
     p_updated_at: now,
+    p_expected_user_id: user.id,
   });
 
   if (error) {
     throw error;
   }
 
+  if (epoch !== pushRegistrationEpoch) {
+    await queueRegistrationRetirement(registration);
+    void finishRemoteLogout(session.access_token, registration);
+    return null;
+  }
+  await rememberPushRegistration(registration);
   return { token, platform };
-}
-
-async function deleteCurrentUserPushTokens() {
-  const supabase = getSupabaseClient();
-  const user = await getSessionUser();
-
-  if (!user) {
-    return;
-  }
-
-  const existingPermission = await Notifications.getPermissionsAsync();
-
-  if (!existingPermission.granted) {
-    return;
-  }
-
-  const projectId = getExpoProjectId();
-  const expoPushToken = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
-  const { error } = await supabase
-    .from('push_tokens')
-    .delete()
-    .eq('user_id', user.id)
-    .eq('token', expoPushToken.data);
-
-  if (error) {
-    throw error;
-  }
 }
 
 export async function getCurrentUserKundliSummary() {
@@ -993,118 +937,6 @@ export async function getCurrentUserKundliSummary() {
   };
 }
 
-export async function uploadCurrentUserProfilePhoto(uri: string, sortOrder: number) {
-  const supabase = getSupabaseClient();
-  const user = await requireSessionUser();
-
-  const { extension, contentType } = getPhotoContentType(uri);
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  const fileBuffer = base64ToArrayBuffer(base64);
-
-  if (fileBuffer.byteLength === 0) {
-    throw new Error('Selected photo could not be read from the device.');
-  }
-
-  const storagePath = `${user.id}/${Date.now()}-${sortOrder}.${extension}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from('profile-photos')
-    .upload(storagePath, fileBuffer, {
-      contentType,
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw uploadError;
-  }
-
-  const { data: uploadedFiles, error: listError } = await supabase.storage
-    .from('profile-photos')
-    .list(user.id, {
-      search: storagePath.split('/').pop(),
-    });
-
-  if (listError) {
-    await supabase.storage.from('profile-photos').remove([storagePath]);
-    throw listError;
-  }
-
-  const uploadedFile = uploadedFiles?.find((item) => item.name === storagePath.split('/').pop());
-  if (!uploadedFile?.metadata?.size) {
-    await supabase.storage.from('profile-photos').remove([storagePath]);
-    throw new Error('Uploaded photo has no image data.');
-  }
-
-  const { error: rowError } = await supabase.from('profile_photos').insert({
-    user_id: user.id,
-    storage_path: storagePath,
-    sort_order: sortOrder,
-  });
-
-  if (rowError) {
-    await supabase.storage.from('profile-photos').remove([storagePath]);
-    throw rowError;
-  }
-
-  const { data } = supabase.storage.from('profile-photos').getPublicUrl(storagePath);
-  return data.publicUrl;
-}
-
-function getProfilePhotoStoragePath(publicUrl: string, userId: string) {
-  const marker = '/profile-photos/';
-  const markerIndex = publicUrl.indexOf(marker);
-
-  if (markerIndex === -1) {
-    return null;
-  }
-
-  const storagePath = decodeURIComponent(publicUrl.slice(markerIndex + marker.length));
-  return storagePath.startsWith(`${userId}/`) ? storagePath : null;
-}
-
-export async function updateCurrentUserProfilePhotoOrder(publicUrls: string[]) {
-  const supabase = getSupabaseClient();
-  const user = await requireSessionUser();
-
-  const storagePaths = publicUrls
-    .map((publicUrl) => getProfilePhotoStoragePath(publicUrl, user.id))
-    .filter((storagePath): storagePath is string => Boolean(storagePath));
-
-  const { error } = await supabase.rpc('reorder_profile_photos', { p_storage_paths: storagePaths });
-
-  if (error) {
-    throw error;
-  }
-}
-
-export async function deleteCurrentUserProfilePhoto(publicUrl: string) {
-  const supabase = getSupabaseClient();
-  const user = await requireSessionUser();
-
-  const storagePath = getProfilePhotoStoragePath(publicUrl, user.id);
-  if (!storagePath) {
-    return;
-  }
-
-  const { error: rowError } = await supabase
-    .from('profile_photos')
-    .delete()
-    .eq('user_id', user.id)
-    .eq('storage_path', storagePath);
-
-  if (rowError) {
-    throw rowError;
-  }
-
-  const { error: storageError } = await supabase.storage.from('profile-photos').remove([storagePath]);
-
-  if (storageError) {
-    throw storageError;
-  }
-}
-
 export async function getCurrentSession() {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase.auth.getSession();
@@ -1117,17 +949,12 @@ export async function getCurrentSession() {
 }
 
 export async function signOut() {
-  const supabase = getSupabaseClient();
+  pushRegistrationEpoch += 1;
+  const retirement = await queuePushRetirement().catch(() => null);
+  const accessToken = await clearLocalAuthSession();
 
-  try {
-    await deleteCurrentUserPushTokens();
-  } catch (error) {
-    console.warn('Push token cleanup failed during sign out.', error);
-  }
-
-  const { error } = await supabase.auth.signOut();
-
-  if (error) {
-    throw error;
-  }
+  await Notifications.clearLastNotificationResponseAsync().catch((error) => {
+    console.warn('Notification cleanup failed during sign out.', error);
+  });
+  if (accessToken) void finishRemoteLogout(accessToken, retirement);
 }

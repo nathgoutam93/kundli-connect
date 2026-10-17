@@ -19,8 +19,9 @@ import { SegmentedControl } from '@/components/ui/segmented-control';
 import { toast } from '@/components/ui/toast';
 import { colors, fontFamily, gutter, radius, space } from '@/constants/theme';
 import { type ChatPreview, type CompatibilityResult, type DiscoverProfile, type LikeItem } from '@/constants/mock-data';
+import { useChatDraft } from '@/hooks/use-chat-draft';
 import { useAppData } from '@/hooks/use-app-data';
-import { useChatMessagesInfiniteQuery } from '@/hooks/use-domain-data';
+import { useChatMessagesInfiniteQuery, useChatPreviewQuery } from '@/hooks/use-domain-data';
 import { useSafetyActions } from '@/hooks/use-safety-actions';
 import { isPendingMessage } from '@/lib/chat-cache';
 import { haptics } from '@/lib/haptics';
@@ -49,7 +50,7 @@ type MatchProfile = {
     bio: string;
     photos: string[];
     details: DiscoverProfile['details'];
-    compatibilityScore: number;
+    compatibilityScore: number | null;
     compatibility?: CompatibilityResult;
 };
 
@@ -84,10 +85,10 @@ function buildMatchProfile(
     likes: LikeItem[]
 ): MatchProfile {
     const discoverProfile = discoverProfiles.find(
-        (profile) => profile.id === chat?.participantId || profile.name === chat?.name
+        (profile) => profile.id === chat?.participantId
     );
     const participantProfile = chat?.participantProfile ?? discoverProfile;
-    const like = likes.find((item) => item.fromProfileId === chat?.participantId || item.fromName === chat?.name);
+    const like = likes.find((item) => item.fromProfileId === chat?.participantId);
     const chatCompatibility = chat?.compatibility;
 
     if (participantProfile) {
@@ -98,8 +99,8 @@ function buildMatchProfile(
             bio: participantProfile.bio,
             photos: participantProfile.photos,
             details: participantProfile.details,
-            compatibilityScore: chatCompatibility?.overallScore ?? participantProfile.compatibility.overallScore,
-            compatibility: chatCompatibility ?? participantProfile.compatibility,
+            compatibilityScore: chatCompatibility?.overallScore ?? participantProfile.compatibility?.overallScore ?? null,
+            compatibility: chatCompatibility ?? participantProfile.compatibility ?? undefined,
         };
     }
 
@@ -108,31 +109,31 @@ function buildMatchProfile(
             name: like.fromName,
             age: like.age,
             location: like.location,
-            bio: like.openingMessage,
+            bio: '',
             photos: [like.avatarUrl],
             details: [
                 { label: 'location', icon: 'home-outline', text: like.location },
                 { label: 'intent', icon: 'heart-outline', text: like.note },
             ],
-            compatibilityScore: chatCompatibility?.overallScore ?? like.compatibility.overallScore,
-            compatibility: chatCompatibility ?? like.compatibility,
+            compatibilityScore: chatCompatibility?.overallScore ?? like.compatibility?.overallScore ?? null,
+            compatibility: chatCompatibility ?? like.compatibility ?? undefined,
         };
     }
 
     return {
         name: chat?.name ?? 'Match',
         location: 'Location not shared',
-        bio: chat?.lastMessage ?? 'This profile is available from your match thread.',
+        bio: '',
         photos: chat?.avatarUrl ? [chat.avatarUrl] : [],
         details: [
             {
                 label: 'compatibility',
                 icon: 'sparkles-outline',
-                text: `${chatCompatibility?.overallScore ?? chat?.compatibilityScore ?? 0}% Kundli match`,
+                text: chatCompatibility ? `${chatCompatibility.overallScore}% Kundli match` : 'Compatibility unavailable',
             },
             { label: 'status', icon: 'chatbubble-ellipses-outline', text: 'Matched conversation' },
         ],
-        compatibilityScore: chatCompatibility?.overallScore ?? chat?.compatibilityScore ?? 0,
+        compatibilityScore: chatCompatibility?.overallScore ?? chat?.compatibilityScore ?? null,
         compatibility: chatCompatibility,
     };
 }
@@ -142,24 +143,17 @@ function buildScoreRows(profile: MatchProfile) {
         return profile.compatibility.breakdown;
     }
 
-    const score = profile.compatibilityScore;
-    return [
-        { label: 'Guna Milan', value: Math.min(score + 8, 96) },
-        { label: 'Nadi Compatibility', value: Math.max(score - 10, 58) },
-        { label: 'Bhakoot/Rashi Matching', value: Math.min(score + 3, 94) },
-        { label: 'Overall Match', value: score },
-    ];
+    return [];
 }
 
 export default function ChatThreadScreen() {
-    const params = useLocalSearchParams<{ chatId: string | string[] }>();
+    const params = useLocalSearchParams<{ chatId: string | string[]; draft?: string | string[] }>();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isReportOpen, setIsReportOpen] = useState(false);
     const safety = useSafetyActions();
-    const [draft, setDraft] = useState('');
     const {
         chats,
         discoverProfiles,
@@ -167,8 +161,12 @@ export default function ChatThreadScreen() {
         markChatRead,
         sendChatMessage,
     } = useAppData();
-    const chatId = Array.isArray(params.chatId) ? params.chatId[0] : params.chatId;
-    const chat = chats.find((item) => item.id === chatId);
+    const routeChatId = Array.isArray(params.chatId) ? params.chatId[0] : params.chatId;
+    const seed = Array.isArray(params.draft) ? params.draft[0] : params.draft;
+    const { draft,setDraft,seedError } = useChatDraft(routeChatId,seed,() => router.setParams({ draft:undefined }));
+    const chatQuery = useChatPreviewQuery(routeChatId ?? '');
+    const chat = chatQuery.isSuccess ? chatQuery.data ?? undefined : chats.find((item) => item.id === routeChatId);
+    const chatId = chat?.id ?? routeChatId;
     const messagesQuery = useChatMessagesInfiniteQuery(chatId ?? '');
     const markChatReadRef = useRef(markChatRead);
     markChatReadRef.current = markChatRead;
@@ -201,11 +199,14 @@ export default function ChatThreadScreen() {
 
     // Mark read on open and whenever a new incoming message arrives while the thread is open.
     const latestIncomingMessageId = [...thread.messages].reverse().find((message) => message.senderId !== 'me')?.id;
+    const canMarkRead = Boolean(chat && messagesQuery.data);
     useEffect(() => {
-        if (chatId) {
-            void markChatReadRef.current(chatId);
+        if (chatId && canMarkRead) {
+            void markChatReadRef.current(chatId).catch(() => {
+                toast.warning('Could not mark this conversation as read.');
+            });
         }
-    }, [chatId, latestIncomingMessageId]);
+    }, [chatId, canMarkRead, latestIncomingMessageId]);
 
     const partnerId = chat?.participantId;
 
@@ -274,13 +275,25 @@ export default function ChatThreadScreen() {
 
         setDraft('');
         try {
-            await sendChatMessage(chatId, text);
+            await sendChatMessage(chatId, text, routeChatId);
         } catch (error) {
             // The optimistic bubble is rolled back; give the text back so nothing is lost.
             setDraft((current) => current || text);
             haptics.error();
             Alert.alert('Message not sent', error instanceof Error ? error.message : 'Please try again.');
         }
+    }
+
+    if (chatQuery.isPending || (chat && messagesQuery.isPending)) {
+        return <Screen><EmptyState title="Loading conversation" loading /></Screen>;
+    }
+    if (chatQuery.isError || messagesQuery.isError) {
+        return <Screen><EmptyState title="Could not load conversation" message="Check your connection and try again."
+            action={<Button label="Try again" onPress={() => { void chatQuery.refetch(); void messagesQuery.refetch(); }} />} /></Screen>;
+    }
+    if (!chat) {
+        return <Screen><EmptyState title="Conversation unavailable" message="This match may have ended."
+            action={<Button label="Back to chats" onPress={() => router.replace('/(tabs)/chats')} />} /></Screen>;
     }
 
     return (
@@ -301,7 +314,7 @@ export default function ChatThreadScreen() {
                             <AppText variant="headline" numberOfLines={1}>
                                 {thread.name}
                             </AppText>
-                            {matchProfile.compatibilityScore ? (
+                            {matchProfile.compatibilityScore !== null ? (
                                 <AppText variant="caption" color={colors.accent}>
                                     ✦ {matchProfile.compatibilityScore}% Kundli match
                                 </AppText>
@@ -336,6 +349,7 @@ export default function ChatThreadScreen() {
                 {activeTab === 'chat' ? (
                     <View style={[styles.composerWrap, { paddingBottom: Math.max(insets.bottom, space.sm) + space.xs }]}>
                         <TextInput
+                            maxLength={2000}
                             placeholder="Write a message"
                             keyboardAppearance="dark"
                             placeholderTextColor={colors.textFaint}
@@ -347,6 +361,7 @@ export default function ChatThreadScreen() {
                             style={styles.composer}
                         />
                         <SendButton canSend={Boolean(draft.trim())} onSend={handleSend} />
+                        {seedError ? <AppText color={colors.danger}>The icebreaker was too long to add to your current draft.</AppText> : null}
                     </View>
                 ) : null}
             </KeyboardAvoidingView>
@@ -512,17 +527,18 @@ function ChatTab({
 
 function ScoreTab({ profile }: { profile: MatchProfile }) {
     const { profile: viewer } = useAppData();
+    if (!profile.compatibility) return <EmptyState title="Compatibility unavailable" message="A calculated report is not available for this match." />;
     const rows = buildScoreRows(profile);
     const summary = getMatchReport(profile.compatibility) ??
         profile.compatibility?.summary ??
-        'Your charts show a balanced opening for conversation, practical timing, and steady emotional rhythm.';
+        '';
     const yogas = profile.compatibility?.yogas ?? [];
     const doshas = profile.compatibility?.doshas ?? [];
 
     return (
         <ScrollView contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false}>
             <CompatibilityHero
-                score={profile.compatibilityScore}
+                score={profile.compatibility.overallScore}
                 viewerName={viewer.name}
                 viewerPhotoUri={viewer.photoUris[0]}
                 partnerName={profile.name}

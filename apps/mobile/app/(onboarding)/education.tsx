@@ -20,8 +20,8 @@ export default function EducationScreen() {
         educationLevel === PREFER_NOT_TO_SAY
     );
 
-    function handleContinue() {
-        updateProfile({
+    async function handleContinue() {
+        await updateProfile({
             school: schoolPreferNotToSay ? PREFER_NOT_TO_SAY : school.trim(),
             schoolVisibleOnProfile: schoolPreferNotToSay ? false : schoolVisibleOnProfile,
             educationLevel: educationLevelPreferNotToSay ? PREFER_NOT_TO_SAY : educationLevel.trim(),

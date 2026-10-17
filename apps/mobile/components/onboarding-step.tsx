@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
@@ -39,12 +39,12 @@ type OnboardingStepProps = {
   subtitle?: string;
   children?: ReactNode;
   /** Primary action. Omit to render your own footer via `footer`. */
-  onContinue?: () => void;
+  onContinue?: () => void | Promise<void>;
   continueLabel?: string;
   canContinue?: boolean;
   isBusy?: boolean;
   /** Secondary action shown under the primary button, e.g. "Skip". */
-  secondaryAction?: { label: string; onPress: () => void };
+  secondaryAction?: { label: string; onPress: () => void | Promise<void> };
   footer?: ReactNode;
   error?: string | null;
   showBack?: boolean;
@@ -67,6 +67,24 @@ export function OnboardingStep({
   showBack = true,
   scrollable = true,
 }: OnboardingStepProps) {
+  const submitting = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const busy = isBusy || isSubmitting;
+  async function runAction(action: () => void | Promise<void>) {
+    if (submitting.current || isBusy) return;
+    submitting.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await action();
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'Could not save. Please try again.');
+    } finally {
+      submitting.current = false;
+      setIsSubmitting(false);
+    }
+  }
   const insets = useSafeAreaInsets();
   const index = ONBOARDING_STEPS.indexOf(step);
   const progress = (index + 1) / ONBOARDING_STEPS.length;
@@ -94,7 +112,7 @@ export function OnboardingStep({
     <Screen starSeed={index + 3}>
       <KeyboardAvoidingView style={styles.flex} behavior="padding">
         <View style={styles.topBar}>
-          {showBack && router.canGoBack() ? (
+          {showBack && !busy && router.canGoBack() ? (
             <IconButton icon="chevron-back" accessibilityLabel="Go back" onPress={() => router.back()} size={40} />
           ) : (
             <View style={styles.backPlaceholder} />
@@ -127,9 +145,9 @@ export function OnboardingStep({
         )}
 
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, space.md) + space.xs }]}>
-          {error ? (
+          {submitError || error ? (
             <AppText variant="footnote" color={colors.danger} align="center">
-              {error}
+              {submitError || error}
             </AppText>
           ) : null}
           {footer}
@@ -138,13 +156,13 @@ export function OnboardingStep({
               label={continueLabel}
               icon="arrow-forward"
               iconPosition="trailing"
-              onPress={onContinue}
-              disabled={!canContinue}
-              loading={isBusy}
+              onPress={() => { void runAction(onContinue); }}
+              disabled={!canContinue || busy}
+              loading={busy}
             />
           ) : null}
           {secondaryAction ? (
-            <Button label={secondaryAction.label} variant="ghost" size="md" onPress={secondaryAction.onPress} />
+            <Button label={secondaryAction.label} variant="ghost" size="md" disabled={busy} onPress={() => { void runAction(secondaryAction.onPress); }} />
           ) : null}
         </View>
       </KeyboardAvoidingView>

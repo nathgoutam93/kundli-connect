@@ -30,16 +30,17 @@ export default function GenderPreferencesScreen() {
 
   function togglePreference(option: string) {
     setSelectedPreferences((current) => {
+      if (option === 'Everyone') return current.includes(option) ? [] : ['Everyone'];
       if (current.includes(option)) {
         return current.filter((item) => item !== option);
       }
 
-      return [...current, option];
+      return [...current.filter((item) => item !== 'Everyone'), option];
     });
   }
 
-  function handleContinue() {
-    updateProfile({ genderPreferences: selectedPreferences });
+  async function handleContinue() {
+    await updateProfile({ genderPreferences: selectedPreferences });
     router.push('/(onboarding)/family-planning');
   }
 

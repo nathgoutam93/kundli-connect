@@ -28,7 +28,7 @@ const RING_RADIUS = (DIAL_SIZE - RING_STROKE) / 2 - 3;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /** The narrative match report, when present in the raw compatibility payload. */
-export function getMatchReport(compatibility?: Pick<CompatibilityResult, 'raw'>): string | undefined {
+export function getMatchReport(compatibility?: Pick<CompatibilityResult, 'raw'> | null): string | undefined {
   const conclusion = compatibility?.raw?.conclusion;
   if (conclusion && typeof conclusion === 'object' && 'match_report' in conclusion) {
     const report = (conclusion as { match_report?: unknown }).match_report;

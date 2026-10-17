@@ -6,6 +6,7 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { OnboardingStep } from '@/components/onboarding-step';
 import { AppText } from '@/components/ui/app-text';
 import { Button } from '@/components/ui/button';
+import { ChoiceRow } from '@/components/ui/choice';
 import { Card } from '@/components/ui/card';
 import { colors, space } from '@/constants/theme';
 import { useAppData } from '@/hooks/use-app-data';
@@ -18,12 +19,24 @@ const NOTIFICATION_TYPES = [
 ] as const;
 
 export default function NotificationsScreen() {
-  const { completeOnboarding } = useAppData();
+  const { completeOnboarding, profile } = useAppData();
   const [isRegistering, setIsRegistering] = useState(false);
+  const [birthConfirmed, setBirthConfirmed] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [completionError, setCompletionError] = useState('');
 
   async function handleContinue() {
-    await completeOnboarding();
-    router.replace('/(tabs)');
+    if (!birthConfirmed || isCompleting) return;
+    setIsCompleting(true);
+    setCompletionError('');
+    try {
+      await completeOnboarding();
+      router.replace('/(tabs)');
+    } catch (error) {
+      setCompletionError(error instanceof Error ? error.message : 'Could not finish setup. Please try again.');
+    } finally {
+      setIsCompleting(false);
+    }
   }
 
   async function handleEnableNotifications() {
@@ -57,17 +70,27 @@ export default function NotificationsScreen() {
       step="notifications"
       title="Don’t miss your destiny"
       subtitle="Your match might message at any moment. We’ll only notify you about what matters."
+      error={completionError}
       footer={
         <>
           <Button
             label="Turn on notifications"
             icon="notifications"
-            loading={isRegistering}
+            loading={isRegistering || isCompleting}
+            disabled={!birthConfirmed}
             onPress={handleEnableNotifications}
           />
-          <Button label="Not now" variant="ghost" size="md" disabled={isRegistering} onPress={handleContinue} />
+          <Button label="Not now" variant="ghost" size="md" disabled={isRegistering || isCompleting || !birthConfirmed} onPress={handleContinue} />
         </>
       }>
+      <Card style={styles.card}>
+        <AppText variant="headline">Check your birth details</AppText>
+        <AppText>{profile.dateOfBirth} · {profile.timeOfBirth}</AppText>
+        <AppText>{profile.birthPlace}</AppText>
+        <AppText variant="footnote">These details will be locked when you finish setup. Go back to correct them first.</AppText>
+        <ChoiceRow label="I confirm these birth details are correct" selected={birthConfirmed}
+          indicator="check" onPress={() => setBirthConfirmed((value) => !value)} />
+      </Card>
       <Card style={styles.card}>
         {NOTIFICATION_TYPES.map((item) => (
           <View key={item.label} style={styles.row}>

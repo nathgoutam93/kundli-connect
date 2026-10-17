@@ -256,8 +256,10 @@ Edge Function tests (payments, guards, push): `npm run supabase:functions:test` 
 
 ### After deploying
 
-`spend_credit(text)` remains only so Edge Functions deployed before the lockdown migration keep
-working during the rollout. Once the current functions are deployed it can be dropped.
+The legacy credit function has a transactional retirement script in
+[`rollout/20261017111000_retire_legacy_credit.sql`](rollout/20261017111000_retire_legacy_credit.sql).
+Follow the hosted-consumer inventory and verification steps in
+[the list/display rollout guide](../docs/lists-preview-rollout.md) before running it.
 
 ## Social sign-in (Google, Meta, Apple)
 
@@ -302,3 +304,16 @@ Notes:
   verify tokens with `auth.getClaims()`, which checks them locally when asymmetric keys are
   enabled and otherwise falls back to a request to the Auth server.
 - **Realtime** must be enabled for the project (it is by default).
+
+
+## Historical-data audits and repairs
+
+Administrative read-only inventory and repair tooling with default dry runs is in
+[`maintenance/`](maintenance/). See [data-repair-rollout.md](../docs/data-repair-rollout.md)
+for prerequisites, evidence/fingerprint review, staging rehearsal and per-action usage.
+These scripts are separate from automatic migrations; no hosted data is repaired by app deployment.
+
+For member-confirmed corrections to already-locked birth inputs, use the
+[administrative birth-correction workflow](../docs/birth-correction-rollout.md).
+It prepares a replacement Kundli offline and defaults to a read-only preview before
+an atomic, fingerprint-checked correction and dependent-report invalidation.

@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { OnboardingStep } from '@/components/onboarding-step';
 import { AppText } from '@/components/ui/app-text';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { WheelPicker } from '@/components/ui/wheel-picker';
 import { colors, fontFamily, radius, space } from '@/constants/theme';
@@ -187,6 +188,8 @@ export default function KundliDetailsScreen() {
     const { profile, updateProfile } = useAppData();
     const [dobParts, setDobParts] = useState(() => getInitialDateParts(profile.dateOfBirth));
     const [timeParts, setTimeParts] = useState(() => getInitialTimeParts(profile.timeOfBirth));
+    const [dateConfirmed, setDateConfirmed] = useState(false);
+    const [timeConfirmed, setTimeConfirmed] = useState(false);
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     // Kept after closing so the sheet's exit animation still shows the same wheel.
     const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);
@@ -213,12 +216,13 @@ export default function KundliDetailsScreen() {
 
     const isFormValid = useMemo(
         () =>
-            isValidDate(dobParts[0], dobParts[1], dobParts[2]) &&
+            dateConfirmed && timeConfirmed && isValidDate(dobParts[0], dobParts[1], dobParts[2]) &&
             isValidTime(timeParts[0], timeParts[1], timeParts[2]),
-        [dobParts, timeParts]
+        [dobParts, timeParts, dateConfirmed, timeConfirmed]
     );
 
     function updateDate(nextDay: number, nextMonth: number, nextYear: number) {
+        setDateConfirmed(false);
         const clampedMonth = Math.min(nextMonth, getMaxMonth(nextYear));
         const clampedDay = Math.min(nextDay, getMaxDay(nextYear, clampedMonth));
 
@@ -231,6 +235,7 @@ export default function KundliDetailsScreen() {
     }
 
     function updateTimePart(index: number, value: string) {
+        setTimeConfirmed(false);
         setTimeParts((current) => {
             const next = [...current];
             next[index] = value;
@@ -298,12 +303,12 @@ export default function KundliDetailsScreen() {
         updateTimePart(activePicker.index, value);
     }
 
-    function handleContinue() {
+    async function handleContinue() {
         if (!isFormValid) {
             return;
         }
 
-        updateProfile({
+        await updateProfile({
             dateOfBirth: dobParts.join('-'),
             timeOfBirth: timeParts.join(':'),
         });
@@ -333,6 +338,12 @@ export default function KundliDetailsScreen() {
                         separatorChar="·"
                         wideLastInput
                     />
+                    <Button
+                        label={dateConfirmed ? 'Birth date confirmed' : `Confirm ${displayedDobParts.join(' ')}`}
+                        variant="ghost"
+                        disabled={dateConfirmed}
+                        onPress={() => setDateConfirmed(true)}
+                    />
                 </View>
 
                 <View style={styles.divider} />
@@ -349,6 +360,12 @@ export default function KundliDetailsScreen() {
                         onPressPart={(index) => openPicker({ group: 'time', index })}
                         showSeparator
                         separatorChar=":"
+                    />
+                    <Button
+                        label={timeConfirmed ? 'Birth time confirmed' : `Confirm ${timeParts.join(':')}`}
+                        variant="ghost"
+                        disabled={timeConfirmed}
+                        onPress={() => setTimeConfirmed(true)}
                     />
                 </View>
             </Card>

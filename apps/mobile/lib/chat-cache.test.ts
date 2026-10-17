@@ -5,6 +5,7 @@ import {
   applyMessageToPreviews,
   createPendingMessage,
   messageFromRow,
+  markPreviewRead,
   reconcileSentMessage,
   replaceMessage,
   type MessagePages,
@@ -23,6 +24,12 @@ function ids(data: MessagePages | undefined) {
 }
 
 describe('chat cache', () => {
+  it('does not turn an unloaded chat list into a fresh empty list when marking read', () => {
+    expect(markPreviewRead(undefined, 'a')).toBeUndefined();
+    const chats = [{ id: 'a', unreadCount: 2 }, { id: 'b', unreadCount: 3 }] as ChatPreview[];
+    expect(markPreviewRead(chats, 'a')?.map((chat) => chat.unreadCount)).toEqual([0, 3]);
+    expect(chats[0].unreadCount).toBe(2);
+  });
   it('appends incoming messages once', () => {
     const start = pages(message('1', 'hi'));
     const once = appendMessage(start, message('2', 'hello'));
@@ -75,4 +82,27 @@ describe('chat cache', () => {
 
     expect(applyMessageToPreviews(chats, 'unknown', message('m', 'x'))).toBeUndefined();
   });
+});
+test('identical text from another request cannot replace the wrong pending message', () => {
+  const first = createPendingMessage('Hello',new Date('2026-10-17T00:00:00Z'),'request-one');
+  const second = createPendingMessage('Hello',new Date('2026-10-17T00:00:01Z'),'request-two');
+  const initial = { pages:[{ messages:[first,second],hasMoreMessages:false }],pageParams:[undefined] };
+  const saved = { ...second,id:'server-message' };
+  expect(appendMessage(initial,saved)?.pages[0].messages).toEqual([first,saved]);
+});
+
+test('paginated realtime updates preserve cursors, move the updated thread, and ignore a replay', () => {
+  const { applyMessageToPreviewPages, markPreviewPagesRead } = require('./chat-cache') as typeof import('./chat-cache');
+  const cursor = { at: '2026-10-01T00:00:00Z', id: 'a' };
+  const chat = (id: string) => ({ id, updatedAt: cursor.at, unreadCount: 0, messages: [] }) as unknown as ChatPreview;
+  const data = { pages: [{ items: [chat('a')], nextCursor: cursor }, { items: [chat('b')] }], pageParams: [undefined, cursor] };
+  const incoming = message('new', 'hi', 'other', '2026-10-02T00:00:00Z');
+  const updated = applyMessageToPreviewPages(data, 'b', incoming)!;
+  expect(updated.pages.map((page) => page.items[0].id)).toEqual(['b', 'a']);
+  expect(updated.pages[0].nextCursor).toBe(cursor);
+  expect(updated.pageParams).toBe(data.pageParams);
+  expect(applyMessageToPreviewPages(updated, 'b', incoming)?.pages[0].items[0].unreadCount).toBe(1);
+  expect(markPreviewPagesRead(updated, 'b')?.pages[0].items[0].unreadCount).toBe(0);
+  expect(applyMessageToPreviewPages(data, 'outside', incoming)).toBeUndefined();
+  expect(markPreviewPagesRead(undefined, 'b')).toBeUndefined();
 });

@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabase';
+import { cursorArgs, listPage, type ListCursor } from '@/lib/list-pages';
 
 /** Must match the reasons accepted by `report_user` in the database. */
 export const REPORT_REASONS = [
@@ -31,18 +32,18 @@ export async function unblockUser(userId: string) {
   if (error) throw error;
 }
 
-export async function getBlockedUsers(): Promise<BlockedUser[]> {
+export async function getBlockedUsers(before?: ListCursor) {
   const supabase = getSupabaseClient();
-  const { data, error } = await supabase.rpc('get_blocked_users');
+  const { data, error } = await supabase.rpc('get_blocked_users_page',cursorArgs(before));
   if (error) throw error;
-  return ((data ?? []) as { user_id: string; display_name: string | null; photo_path: string | null; blocked_at: string }[]).map(
+  return listPage((data ?? []) as { user_id: string; display_name: string | null; photo_path: string | null; blocked_at: string }[],
     (row) => ({
       userId: row.user_id,
       name: row.display_name?.trim() || 'Someone',
-      photoUrl: row.photo_path ? supabase.storage.from('profile-photos').getPublicUrl(row.photo_path).data.publicUrl : undefined,
+      photoUrl: undefined,
       blockedAt: row.blocked_at,
-    })
-  );
+    }),
+    (row) => ({ at: row.blocked_at, id: row.user_id }));
 }
 
 /** Files a report (the server keeps a snapshot of the profile and recent messages as evidence). */

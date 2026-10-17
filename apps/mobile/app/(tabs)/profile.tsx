@@ -11,7 +11,8 @@ import { Card } from '@/components/ui/card';
 import { IconButton } from '@/components/ui/icon-button';
 import { Screen } from '@/components/ui/screen';
 import { colors, gutter, radius, space } from '@/constants/theme';
-import { type UserProfile } from '@/constants/mock-data';
+import { LoadErrorNotice } from '@/components/load-error-notice';
+import { useOwnPublicProfileQuery } from '@/hooks/use-domain-data';
 import { useAppData } from '@/hooks/use-app-data';
 import { usePressAnimation } from '@/hooks/use-press-animation';
 import { AnimatedPressable } from '@/lib/motion';
@@ -20,6 +21,7 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 
 export default function ProfileScreen() {
     const { creditsBalance, profile, subscription } = useAppData();
+    const preview = useOwnPublicProfileQuery();
     const displayName = profile.name || 'New User';
     const isPremium = subscription.status === 'active';
 
@@ -78,16 +80,10 @@ export default function ProfileScreen() {
                         How others see you
                     </AppText>
                 </View>
-                <ProfileView
-                    profile={{
-                        name: displayName,
-                        age: profile.age,
-                        location: profile.location,
-                        bio: profile.bio,
-                        photos: profile.photoUris ?? [],
-                        details: buildProfileDetails(profile),
-                    }}
-                />
+                {preview.isError ? <LoadErrorNotice subject="your public profile" onRetry={preview.refetch} /> : null}
+                {preview.data ? <ProfileView profile={preview.data} /> : preview.isPending ? (
+                    <AppText color={colors.textMuted}>Loading your public profile…</AppText>
+                ) : null}
             </ScrollView>
         </Screen>
     );
@@ -132,32 +128,6 @@ function QuickTile({
             <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
         </AnimatedPressable>
     );
-}
-
-function buildProfileDetails(profile: UserProfile) {
-    const genderPreference = profile.genderPreferences?.join(', ');
-    const work = [profile.workplaceVisibleOnProfile ? profile.workplace : '', profile.jobRoleVisibleOnProfile ? profile.jobRole : '']
-        .filter(Boolean)
-        .join(', ');
-    const education = [
-        profile.schoolVisibleOnProfile ? profile.school : '',
-        profile.educationLevelVisibleOnProfile ? profile.educationLevel : '',
-    ]
-        .filter(Boolean)
-        .join(', ');
-
-    return [
-        { label: 'gender', icon: 'person-outline' as const, text: profile.gender },
-        { label: 'preference', icon: 'magnet-outline' as const, text: genderPreference },
-        { label: 'height', icon: 'resize-outline' as const, text: profile.height },
-        { label: 'work', icon: 'briefcase-outline' as const, text: work },
-        { label: 'education', icon: 'school-outline' as const, text: education },
-        { label: 'religion', icon: 'sparkles-outline' as const, text: profile.religiousBeliefs },
-        { label: 'location', icon: 'home-outline' as const, text: profile.location },
-        { label: 'family', icon: 'people-outline' as const, text: profile.familyPlansVisibleOnProfile ? profile.familyPlans : '' },
-        { label: 'drinking', icon: 'wine-outline' as const, text: profile.drinkingVisibleOnProfile ? `Drinking: ${profile.drinking}` : '' },
-        { label: 'smoking', icon: 'ban-outline' as const, text: profile.smokingVisibleOnProfile ? `Smoking: ${profile.smoking}` : '' },
-    ].filter((item) => item.text);
 }
 
 const styles = StyleSheet.create({

@@ -24,8 +24,8 @@ export default function FamilyPlanningScreen() {
     profile.familyPlansVisibleOnProfile ?? true
   );
 
-  function handleContinue() {
-    updateProfile({ familyPlans, familyPlansVisibleOnProfile });
+  async function handleContinue() {
+    await updateProfile({ familyPlans, familyPlansVisibleOnProfile });
     router.push('/(onboarding)/notifications');
   }
 

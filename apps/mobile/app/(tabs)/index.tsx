@@ -16,6 +16,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '@/components/action-sheet';
+import { LoadErrorNotice } from '@/components/load-error-notice';
 import { CompatibilityHero, CompatibilityReport } from '@/components/compatibility-report';
 import { ProfileView } from '@/components/profile-view';
 import { ReportSheet } from '@/components/report-sheet';
@@ -33,6 +34,7 @@ import { type CompatibilityResult, type DiscoverProfile } from '@/constants/mock
 import { useAppData } from '@/hooks/use-app-data';
 import { useSafetyActions } from '@/hooks/use-safety-actions';
 import { usePressAnimation } from '@/hooks/use-press-animation';
+import { ServiceError } from '@/lib/service-error';
 import { haptics } from '@/lib/haptics';
 import { AnimatedPressable, easings, springs } from '@/lib/motion';
 
@@ -50,8 +52,14 @@ export default function DiscoverScreen() {
         profile: viewer,
         sendLike,
         isServiceBusy,
-        serviceError,
-        skippedProfileIds,
+        discoverError,
+        refreshDiscoverProfiles,
+        skippedProfiles,
+        skippedError,
+        refreshSkipped,
+        hasMoreSkipped,
+        isLoadingSkipped,
+        loadMoreSkipped,
         subscription,
     } = useAppData();
 
@@ -61,19 +69,12 @@ export default function DiscoverScreen() {
     const matchedProfileIds = chats.map((chat) => chat.participantId);
     const recommendedProfiles = discoverProfiles.filter((item) => !matchedProfileIds.includes(item.id));
     const freshProfiles = recommendedProfiles.filter(
-        (item) => !skippedProfileIds.includes(item.id) && !likedProfileIds.includes(item.id)
-    );
-    const skippedProfiles = recommendedProfiles.filter(
-        (item) => skippedProfileIds.includes(item.id) && !likedProfileIds.includes(item.id)
+        (item) => !likedProfileIds.includes(item.id)
     );
     const shouldRevisitSkipped = freshProfiles.length === 0 && isRevisitingSkipped;
     const availableProfiles = freshProfiles.length > 0 ? freshProfiles : shouldRevisitSkipped ? skippedProfiles : [];
-    const profile = availableProfiles[currentIndex % Math.max(availableProfiles.length, 1)];
+    const profile = availableProfiles[shouldRevisitSkipped ? currentIndex : 0];
     const isPremium = subscription.status === 'active';
-
-    function showNextProfile() {
-        setCurrentIndex((index) => index + 1);
-    }
 
     async function handlePass(profileId: string) {
         try {
@@ -83,7 +84,8 @@ export default function DiscoverScreen() {
             return;
         }
         if (isRevisitingSkipped) {
-            showNextProfile();
+            if (currentIndex + 1 >= skippedProfiles.length && hasMoreSkipped) await loadMoreSkipped();
+            setCurrentIndex((index) => index + 1);
         }
     }
 
@@ -100,7 +102,7 @@ export default function DiscoverScreen() {
         } catch (error) {
             const alertMessage = error instanceof Error ? error.message : 'Could not send like.';
             haptics.error();
-            Alert.alert('Like unavailable', alertMessage);
+            Alert.alert(error instanceof ServiceError && error.code === 'CREDITS_REQUIRED' ? 'Credits needed' : 'Like unavailable', alertMessage, error instanceof ServiceError && error.code === 'CREDITS_REQUIRED' ? [{ text: 'Not now' }, { text: 'View plans', onPress: () => router.push('/subscriptions') }] : undefined);
             return false;
         }
     }
@@ -110,20 +112,29 @@ export default function DiscoverScreen() {
             return await generateCompatibility(profileId);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Could not generate match score.';
-            Alert.alert('Match score unavailable', message);
+            Alert.alert(error instanceof ServiceError && error.code === 'CREDITS_REQUIRED' ? 'Credits needed' : 'Match score unavailable', message, error instanceof ServiceError && error.code === 'CREDITS_REQUIRED' ? [{ text: 'Not now' }, { text: 'View plans', onPress: () => router.push('/subscriptions') }] : undefined);
             return undefined;
         }
     }
 
     const header = (
+        <>
         <DiscoverHeader
             creditsBalance={creditsBalance}
             isPremium={isPremium}
             isRevisitingSkipped={isRevisitingSkipped && Boolean(profile)}
         />
+        {!viewer.location ? <Button label="Add your current city" variant="ghost" onPress={() => router.push('/edit-profile')} /> : null}
+        {discoverError ? <LoadErrorNotice subject="profiles" onRetry={refreshDiscoverProfiles} /> : null}
+        {skippedError ? <LoadErrorNotice subject="skipped profiles" onRetry={refreshSkipped} /> : null}
+        </>
     );
 
-    if (!profile && isLoadingDiscover) {
+    if (viewer.genderPreferences.length === 0) {
+        return <Screen>{header}<EmptyState icon="people-outline" title="Who would you like to meet?" message="Choose your gender preferences to see recommendations." action={<Button label="Set preferences" onPress={() => router.push('/edit-profile')} />} /></Screen>;
+    }
+
+    if (!profile && (isLoadingDiscover || (isLoadingSkipped && (isRevisitingSkipped || !skippedProfiles.length)))) {
         return (
             <Screen>
                 {header}
@@ -133,6 +144,7 @@ export default function DiscoverScreen() {
     }
 
     if (!profile) {
+        if (discoverError || skippedError) return <Screen>{header}</Screen>;
         const canRevisitSkipped = freshProfiles.length === 0 && skippedProfiles.length > 0 && !isRevisitingSkipped;
 
         return (
@@ -140,27 +152,23 @@ export default function DiscoverScreen() {
                 {header}
                 <EmptyState
                     loading={isServiceBusy}
-                    icon={serviceError ? 'cloud-offline-outline' : 'moon-outline'}
+                    icon="moon-outline"
                     title={
                         isServiceBusy
                             ? 'Reading the stars'
-                            : serviceError
-                                ? 'Could not load profiles'
-                                : canRevisitSkipped
+                            : canRevisitSkipped
                                     ? 'You’ve seen everyone new'
                                     : 'That’s everyone for today'
                     }
                     message={
                         isServiceBusy
                             ? 'Finding people whose charts align with yours.'
-                            : serviceError
-                                ? serviceError
-                                : canRevisitSkipped
+                            : canRevisitSkipped
                                     ? 'Take another look at the profiles you skipped earlier.'
                                     : 'New recommendations appear as more people join. Check back soon.'
                     }
                     action={
-                        canRevisitSkipped ? (
+                        isRevisitingSkipped && hasMoreSkipped ? <Button label="Load more skipped profiles" onPress={() => { void loadMoreSkipped(); }} /> : canRevisitSkipped ? (
                             <Button
                                 label="Review skipped profiles"
                                 variant="secondary"
@@ -472,7 +480,7 @@ function RecommendationCard({
             </BottomSheet>
 
             <Modal animationType="fade" visible={isScoreOpen} onRequestClose={skipAfterScore}>
-                <KundaliMatchScore
+                {compatibility ? <KundaliMatchScore
                     compatibility={compatibility}
                     likedPhotoUri={heroPhoto}
                     likedName={profile.name}
@@ -480,7 +488,7 @@ function RecommendationCard({
                     onSkip={skipAfterScore}
                     viewerName={viewerName}
                     viewerPhotoUri={viewerPhotoUri}
-                />
+                /> : null}
             </Modal>
         </View>
     );

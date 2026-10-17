@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { ProfileImage } from '@/components/profile-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,6 +28,8 @@ import { toast } from '@/components/ui/toast';
 import { colors, gutter, radius, space } from '@/constants/theme';
 import { type UserProfile } from '@/constants/mock-data';
 import { useAppData } from '@/hooks/use-app-data';
+import { NAME_MAX_LENGTH, BIO_MAX_LENGTH, CONTACT_EMAIL_MAX_LENGTH } from '@/lib/profile-validation';
+import { changedProfileFields } from '@/lib/profile-patch';
 
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 4;
@@ -101,6 +103,7 @@ export default function EditProfileScreen() {
         isServiceBusy,
         profile,
         removeProfilePhoto,
+        replaceProfilePhoto,
         updateProfile,
     } = useAppData();
     const [form, setForm] = useState<FormState>(() => profileToForm(profile));
@@ -111,6 +114,7 @@ export default function EditProfileScreen() {
     const [draggingPhotoUri, setDraggingPhotoUri] = useState<string | null>(null);
     const [photoDropTargetIndex, setPhotoDropTargetIndex] = useState<number | null>(null);
     const [isPhotoDragging, setIsPhotoDragging] = useState(false);
+    const [failedPhoto, setFailedPhoto] = useState<{ uri: string; previous?: string } | null>(null);
     const [uploadingPhotoUris, setUploadingPhotoUris] = useState<Set<string>>(() => new Set());
     const photoUrisRef = useRef(form.photoUris);
     const draggingPhotoUriRef = useRef<string | null>(null);
@@ -195,13 +199,13 @@ export default function EditProfileScreen() {
 
         try {
             const uploadedUris = await addProfilePhotos([pickedUri]);
-            const uploadedUri = uploadedUris[0];
-            if (!uploadedUri) {
-                throw new Error('Photo upload did not return an image URL.');
-            }
+            const uploadedUri = uploadedUris[0]?.photoUri;
+            if (!uploadedUri) throw new Error(uploadedUris[0]?.error || 'Photo upload did not finish. Please retry.');
             replacePhotoUri(pickedUri, uploadedUri);
+            setFailedPhoto(null);
         } catch (error) {
             replacePhotoUri(pickedUri);
+            setFailedPhoto({ uri: pickedUri });
             Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload the selected photo.');
         } finally {
             setPhotoUploading(pickedUri, false);
@@ -223,27 +227,34 @@ export default function EditProfileScreen() {
         setPhotoUploading(pickedUri, true);
 
         try {
-            const uploadedUris = await addProfilePhotos([pickedUri]);
-            const uploadedUri = uploadedUris[0];
-            if (!uploadedUri) {
-                throw new Error('Photo upload did not return an image URL.');
-            }
-
+            const uploadedUri = await replaceProfilePhoto(pickedUri, oldUri);
             replacePhotoUri(pickedUri, uploadedUri);
-            setPhotoUploading(pickedUri, false);
-
-            if (oldUri) {
-                try {
-                    await removeProfilePhoto(oldUri);
-                } catch (error) {
-                    Alert.alert('Photo cleanup failed', error instanceof Error ? error.message : 'The previous photo could not be removed.');
-                }
-            }
+            setFailedPhoto(null);
         } catch (error) {
             replacePhotoUri(pickedUri, oldUri);
+            setFailedPhoto({ uri: pickedUri, previous: oldUri });
             Alert.alert('Upload failed', error instanceof Error ? error.message : 'Could not upload the selected photo.');
         } finally {
             setPhotoUploading(pickedUri, false);
+        }
+    }
+
+    async function retryFailedPhoto() {
+        if (!failedPhoto || isServiceBusy) return;
+        const failed = failedPhoto;
+        setPhotoUploading(failed.uri, true);
+        try {
+            const results = failed.previous ? null : await addProfilePhotos([failed.uri]);
+            const saved = failed.previous ? await replaceProfilePhoto(failed.uri, failed.previous) : results?.[0]?.photoUri;
+            if (!saved) throw new Error(results?.[0]?.error || 'Could not finish photo upload.');
+            setForm((current) => ({ ...current, photoUris: [...new Set(failed.previous
+                ? current.photoUris.map((photo) => photo === failed.previous ? saved : photo)
+                : [...current.photoUris.filter((photo) => photo !== failed.uri), saved])].slice(0, MAX_PHOTOS) }));
+            setFailedPhoto(null);
+        } catch (error) {
+            Alert.alert('Upload still needs retrying', error instanceof Error ? error.message : 'Please try again.');
+        } finally {
+            setPhotoUploading(failed.uri, false);
         }
     }
 
@@ -320,11 +331,16 @@ export default function EditProfileScreen() {
     }
 
     async function removePhoto(uri: string) {
-        await removeProfilePhoto(uri);
-        updateForm(
-            'photoUris',
-            form.photoUris.filter((photoUri) => photoUri !== uri)
-        );
+        if (form.photoUris.length <= MIN_PHOTOS) {
+            Alert.alert('Keep at least 4 photos', 'You can replace this photo instead.');
+            return;
+        }
+        try {
+            await removeProfilePhoto(uri);
+            setForm((current) => ({ ...current, photoUris: current.photoUris.filter((photo) => photo !== uri) }));
+        } catch (error) {
+            Alert.alert('Could not remove photo', error instanceof Error ? error.message : 'Please try again.');
+        }
     }
 
     function togglePreference(option: string) {
@@ -352,7 +368,7 @@ export default function EditProfileScreen() {
 
         setIsSavingProfile(true);
         try {
-            await updateProfile({
+            const values: Partial<UserProfile> = {
                 name: form.name.trim() || profile.name,
                 email: form.email.trim(),
                 gender: form.gender,
@@ -376,9 +392,13 @@ export default function EditProfileScreen() {
                 location: form.location.trim(),
                 bio: form.bio.trim(),
                 photoUris: form.photoUris,
-            });
+            };
+            const updates = changedProfileFields(savedForm,form,values);
+            await updateProfile(updates);
 
             router.back();
+        } catch (error) {
+            Alert.alert('Could not save profile', error instanceof Error ? error.message : 'Please try again. Your changes are still here.');
         } finally {
             setIsSavingProfile(false);
         }
@@ -450,13 +470,16 @@ export default function EditProfileScreen() {
                         <AppText variant="footnote" color={colors.textFaint}>
                             Tap a photo to replace it, or drag its handle to reorder. Your first photo is your main one.
                         </AppText>
+                        {failedPhoto ? <Button label="Retry photo upload" variant="secondary" disabled={isServiceBusy}
+                            onPress={() => { void retryFailedPhoto(); }} /> : null}
                     </Section>
 
                     <Section title="Basics">
-                        <TextField label="Name" value={form.name} onChangeText={(value) => updateForm('name', value)} />
-                        <TextField label="Email" value={form.email} onChangeText={(value) => updateForm('email', value)} keyboardType="email-address" />
-                        <TextField label="Location" value={form.location} onChangeText={(value) => updateForm('location', value)} />
-                        <TextField label="Bio" value={form.bio} onChangeText={(value) => updateForm('bio', value)} multiline />
+                        <UiTextField label="Name" maxLength={NAME_MAX_LENGTH} value={form.name} onChangeText={(value) => updateForm('name', value)} />
+                        <UiTextField label="Contact email" maxLength={CONTACT_EMAIL_MAX_LENGTH} hint="Used for receipts. It won’t change how you sign in." value={form.email} onChangeText={(value) => updateForm('email', value)} keyboardType="email-address" autoCapitalize="none" />
+                        {profile.verifiedEmail ? <AppText variant="footnote" color={colors.textMuted}>Verified sign-in email: {profile.verifiedEmail}</AppText> : null}
+                        <UiTextField label="Current city" placeholder="e.g. Mumbai, Maharashtra" maxLength={120} value={form.location} onChangeText={(value) => updateForm('location', value)} />
+                        <UiTextField label="Bio" maxLength={BIO_MAX_LENGTH} hint={`${Array.from(form.bio).length}/${BIO_MAX_LENGTH}`} value={form.bio} onChangeText={(value) => updateForm('bio', value)} multiline />
                     </Section>
 
                     <Section title="Birth details">
@@ -592,7 +615,7 @@ function PhotoSlot({
                 disabled={isBusy || isDragging || isUploading}
                 onPress={() => onReplace(index)}
                 style={styles.photoPressable}>
-                <Image source={{ uri: photoUri }} style={styles.photo} contentFit="cover" transition={200} />
+                <ProfileImage uri={photoUri} style={styles.photo} contentFit="cover" transition={200} />
             </Pressable>
             {index === 0 ? (
                 <View style={styles.mainBadge} pointerEvents="none">

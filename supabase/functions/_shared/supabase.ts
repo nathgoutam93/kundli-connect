@@ -41,9 +41,14 @@ export function rpcError(error: { code?: string; message: string }) {
     error.code === "28000" || error.code === "PGRST301" ? 401
     : error.code === "42501" ? 403
     : error.code === "P0002" ? 404
+    : error.code === "P0402" ? 402
+    : error.code === "P0429" ? 429
     : error.code === "22023" ? 400
+    : error.code === "40001" ? 409
     : 500;
-  return new HttpError(status, error.message);
+  return new HttpError(status, status >= 500 ? "Something went wrong. Please try again." : error.message, {
+    code: status === 402 ? "CREDITS_REQUIRED" : status === 429 ? "RATE_LIMITED" : status === 404 ? "INTERACTION_UNAVAILABLE" : "REQUEST_FAILED",
+  });
 }
 
 /**

@@ -1,14 +1,16 @@
 import type { InfiniteData } from '@tanstack/react-query';
 
 import type { ChatMessage, ChatPreview } from '@/constants/mock-data';
+import { flattenList, mapListPages, type ListCursor, type ListPages } from '@/lib/list-pages';
 
 /** One page of the chat-messages infinite query; messages are oldest → newest. */
 export type MessagePage = {
   messages: ChatMessage[];
   hasMoreMessages: boolean;
+  nextCursor?: ListCursor;
 };
 
-export type MessagePages = InfiniteData<MessagePage, string | undefined>;
+export type MessagePages = InfiniteData<MessagePage, ListCursor | undefined>;
 
 /** A message row as delivered by Supabase Realtime. */
 export type RealtimeMessageRow = {
@@ -16,6 +18,7 @@ export type RealtimeMessageRow = {
   chat_id: string;
   sender_id: string;
   body: string;
+  client_request_id?: string | null;
   status: 'sent' | 'read';
   read_at: string | null;
   created_at: string;
@@ -27,9 +30,10 @@ export function isPendingMessage(message: ChatMessage) {
   return message.id.startsWith(PENDING_MESSAGE_PREFIX);
 }
 
-export function createPendingMessage(text: string, now = new Date()): ChatMessage {
+export function createPendingMessage(text: string, now = new Date(), requestId?: string): ChatMessage {
   return {
-    id: `${PENDING_MESSAGE_PREFIX}${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `${PENDING_MESSAGE_PREFIX}${requestId ?? `${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`}`,
+    clientRequestId: requestId,
     createdAt: now.toISOString(),
     senderId: 'me',
     text,
@@ -45,6 +49,7 @@ export function messageFromRow(row: RealtimeMessageRow, currentUserId: string): 
     createdAt: row.created_at,
     senderId: isMine ? 'me' : row.sender_id,
     text: row.body,
+    clientRequestId: row.client_request_id ?? undefined,
     status: row.status,
     ...(isMine && row.status === 'read' && row.read_at ? { seenAt: row.read_at } : {}),
     ...(!isMine && row.read_at ? { readAt: row.read_at } : {}),
@@ -75,7 +80,9 @@ export function appendMessage(data: MessagePages | undefined, message: ChatMessa
 
   return mapNewestPage(data, (messages) => {
     if (message.senderId === 'me' && !isPendingMessage(message)) {
-      const pendingIndex = messages.findIndex((item) => isPendingMessage(item) && item.text === message.text);
+      const pendingIndex = messages.findIndex((item) => isPendingMessage(item) && (message.clientRequestId
+        ? item.clientRequestId === message.clientRequestId
+        : !item.clientRequestId && item.text === message.text));
       if (pendingIndex !== -1) {
         const next = [...messages];
         next[pendingIndex] = message;
@@ -148,6 +155,9 @@ export function applyMessageToPreviews(
     return undefined;
   }
 
+  // Replayed events must not increment unread counts or replace a newer preview.
+  const existing = chats.find((chat) => chat.id === chatId)!;
+  if (existing.messages.some((item) => item.id === message.id) || message.createdAt < existing.updatedAt) return chats;
   const isIncoming = message.senderId !== 'me';
   const updated = chats.map((chat) =>
     chat.id === chatId
@@ -161,5 +171,27 @@ export function applyMessageToPreviews(
       : chat
   );
 
-  return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return updated.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id));
+}
+
+/** Returning undefined leaves an unloaded cache unloaded instead of installing a fresh empty list. */
+export function markPreviewRead(chats: ChatPreview[] | undefined, chatId: string) {
+  return chats?.map((chat) => chat.id === chatId ? { ...chat, unreadCount: 0 } : chat);
+}
+
+export function markPreviewPagesRead(data: ListPages<ChatPreview> | undefined, chatId: string) {
+  return mapListPages(data,(items) => markPreviewRead(items,chatId)!);
+}
+
+/** Move updated rows across loaded pages without changing the server's pagination cursors. */
+export function applyMessageToPreviewPages(data: ListPages<ChatPreview> | undefined, chatId: string, message: ChatMessage) {
+  if (!data) return undefined;
+  const updated = applyMessageToPreviews(flattenList(data),chatId,message);
+  if (!updated) return undefined;
+  let offset=0;
+  return { ...data,pages:data.pages.map((page) => {
+    const items = updated.slice(offset,offset+page.items.length);
+    offset+=page.items.length;
+    return { ...page,items };
+  }) };
 }

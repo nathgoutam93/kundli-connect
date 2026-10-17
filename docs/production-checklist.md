@@ -40,10 +40,8 @@ closes.
       supabase secrets set PAYMENT_PROVIDER=dummy PAYMENTS_ALLOW_DUMMY=true   # until Razorpay is ready
       ```
 - [ ] `npm run supabase:functions:deploy`
-- [ ] Once the new functions are deployed, drop the rollout shim:
-      ```sql
-      drop function if exists public.spend_credit(text);
-      ```
+- [ ] Inventory deployed credit callers, then apply and verify the transactional legacy-credit
+      retirement script as described in [lists-preview-rollout.md](lists-preview-rollout.md).
 - [ ] Schedule the weekly astrology insights job (`INSIGHTS_CRON_SECRET`, `pg_cron` + `pg_net`,
       Vault, `cron.schedule`): steps in `supabase/README.md` → Astrology insights.
 - [ ] Smoke test on a real device: sign up, onboarding, Kundli generation, discover, like, reply,

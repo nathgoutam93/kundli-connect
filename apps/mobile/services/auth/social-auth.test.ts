@@ -133,12 +133,14 @@ describe('profile creation after social sign-in', () => {
     );
   });
 
-  it('retries without the email when another account already uses it', async () => {
-    mockUpsert.mockResolvedValueOnce({ error: { code: '23505', message: 'duplicate key' } }).mockResolvedValueOnce({ error: null });
+  it('preserves contact information without reserving an email identity', async () => {
+    mockUpsert.mockResolvedValueOnce({ error: null });
     await ensureCurrentUserProfile();
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
     expect(mockUpsert).toHaveBeenLastCalledWith(
-      { id: 'user-1', email: null, display_name: 'Asha Rao' },
+      { id: 'user-1', email: 'asha@example.com', display_name: 'Asha Rao' },
       { onConflict: 'id', ignoreDuplicates: true }
     );
   });
 });
+jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));

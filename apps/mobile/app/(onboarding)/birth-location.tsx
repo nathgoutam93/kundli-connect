@@ -3,7 +3,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Location from 'expo-location';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
@@ -88,7 +88,10 @@ export default function BirthLocationScreen() {
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceResult[]>([]);
   const [isFetchingPlaces, setIsFetchingPlaces] = useState(false);
   const [placesError, setPlacesError] = useState('');
-  const [hasSelectedSuggestion, setHasSelectedSuggestion] = useState(Boolean(profile.birthPlace));
+  const [hasSelectedSuggestion, setHasSelectedSuggestion] = useState(Boolean(
+    profile.birthPlace && profile.birthLatitude.trim() && profile.birthLongitude.trim()
+  ));
+  const hasInteractedWithPlace = useRef(Boolean(profile.birthPlace));
   const [selectedCoordinate, setSelectedCoordinate] = useState<Coordinate>(initialCoordinate);
   const [mapRegion, setMapRegion] = useState<Region>(() => coordinateToRegion(initialCoordinate));
   // The timezone normally comes from the pin; a manual UTC offset is the fallback for spots where
@@ -138,25 +141,27 @@ export default function BirthLocationScreen() {
 
         const location = await Location.getLastKnownPositionAsync();
 
-        if (!isMounted || !location) {
+        if (!isMounted || !location || hasInteractedWithPlace.current) {
           return;
         }
 
-        updateSelectedCoordinate({
+        // Device location only centers the viewport. It is never the saved birthplace.
+        setMapRegion((region) => ({
+          ...region,
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-        });
+        }));
       } catch {
         // Current location is optional; keep the fallback coordinate when unavailable.
       }
     }
 
-    loadCurrentLocation();
+    if (!profile.birthPlace) void loadCurrentLocation();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [profile.birthPlace]);
 
   useEffect(() => {
     const query = birthPlace.trim();
@@ -203,12 +208,13 @@ export default function BirthLocationScreen() {
   const isFormValid = useMemo(
     () =>
       Boolean(birthPlace.trim()) &&
+      hasSelectedSuggestion &&
       selectedCoordinate.latitude >= -90 &&
       selectedCoordinate.latitude <= 90 &&
       selectedCoordinate.longitude >= -180 &&
       selectedCoordinate.longitude <= 180 &&
       Boolean(birthTimezone),
-    [birthPlace, birthTimezone, selectedCoordinate.latitude, selectedCoordinate.longitude]
+    [birthPlace, birthTimezone, hasSelectedSuggestion, selectedCoordinate.latitude, selectedCoordinate.longitude]
   );
   const canRenderMap =
     hasExpoMapsNativeModule &&
@@ -226,18 +232,22 @@ export default function BirthLocationScreen() {
 
   /** A pin moved by hand: detect the timezone afresh for the new spot. */
   function handleMapCoordinateChange(coordinate: Coordinate) {
+    hasInteractedWithPlace.current = true;
     updateSelectedCoordinate(coordinate);
+    setHasSelectedSuggestion(Boolean(birthPlace.trim()));
     setManualOffset(null);
     setIsOffsetPickerOpen(false);
   }
 
   function handleBirthPlaceChange(value: string) {
+    hasInteractedWithPlace.current = true;
     setBirthPlace(value);
     setHasSelectedSuggestion(false);
     setPlacesError('');
   }
 
   function selectPlaceSuggestion(place: PlaceResult) {
+    hasInteractedWithPlace.current = true;
     const nextCoordinate = { latitude: place.latitude, longitude: place.longitude };
     setBirthPlace(place.label);
     setHasSelectedSuggestion(true);
@@ -267,12 +277,7 @@ export default function BirthLocationScreen() {
       kundliStatus: 'pending',
     });
 
-    try {
-      await generateKundli();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Kundli generation failed.';
-      setErrorMessage(message);
-    }
+    await generateKundli();
 
     router.push('/(onboarding)/cosmic-chart');
   }

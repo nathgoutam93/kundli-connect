@@ -17,6 +17,7 @@ const TIME_ZONE = Deno.env.get('INSIGHTS_TIME_ZONE') ?? 'Asia/Kolkata';
 
 type ProfileRow = {
   id: string;
+  birth_details_revision: number;
   date_of_birth: string;
   time_of_birth: string;
   birth_timezone: string;
@@ -53,7 +54,7 @@ async function inBatches<T>(items: T[], size: number, run: (item: T) => Promise<
 async function eligibleProfiles(adminClient: SupabaseClient, from: number) {
   const { data, error } = await adminClient
     .from('profiles')
-    .select('id, date_of_birth, time_of_birth, birth_timezone, birth_latitude, birth_longitude')
+    .select('id, date_of_birth, time_of_birth, birth_timezone, birth_latitude, birth_longitude, birth_details_revision')
     .eq('onboarding_completed', true)
     .is('suspended_at', null)
     .not('date_of_birth', 'is', null)
@@ -89,6 +90,7 @@ servePost(async (request) => {
     const profiles = await eligibleProfiles(adminClient, from);
     profilesSeen += profiles.length;
 
+    const revisions = new Map(profiles.map((profile) => [profile.id,profile.birth_details_revision]));
     const insightsByUser = new Map<string, Insight[]>();
     for (const profile of profiles) {
       try {
@@ -103,6 +105,7 @@ servePost(async (request) => {
     const rows = [...insightsByUser].flatMap(([userId, insights]) =>
       insights.map((insight) => ({
         user_id: userId,
+        input_revision: revisions.get(userId),
         week_of: weekOf,
         kind: insight.kind,
         tone: insight.tone,
@@ -118,7 +121,7 @@ servePost(async (request) => {
       // A rerun in the same week inserts nothing new, so nobody is notified twice.
       const { data: inserted, error } = await adminClient
         .from('astro_insights')
-        .upsert(rows, { onConflict: 'user_id,week_of,kind', ignoreDuplicates: true })
+        .upsert(rows, { onConflict: 'user_id,week_of,kind,input_revision', ignoreDuplicates: true })
         .select('user_id, kind');
       if (error) throw error;
       insightsStored += inserted?.length ?? 0;
@@ -128,6 +131,9 @@ servePost(async (request) => {
         const top = insightsByUser.get(userId)?.[0];
         if (!top) return;
         try {
+          const current = await adminClient.from('profiles').select('birth_details_revision').eq('id',userId).single();
+          if (current.error) throw current.error;
+          if (current.data.birth_details_revision !== revisions.get(userId)) return;
           // sendPushToUser skips anyone with "Astrology reports" turned off.
           const result = await sendPushToUser(adminClient, {
             recipientUserId: userId,

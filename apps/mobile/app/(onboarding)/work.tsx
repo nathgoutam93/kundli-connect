@@ -22,8 +22,8 @@ export default function WorkScreen() {
         jobRole === PREFER_NOT_TO_SAY
     );
 
-    function handleContinue() {
-        updateProfile({
+    async function handleContinue() {
+        await updateProfile({
             workplace: workplacePreferNotToSay ? PREFER_NOT_TO_SAY : workplace.trim(),
             workplaceVisibleOnProfile: workplacePreferNotToSay ? false : workplaceVisibleOnProfile,
             jobRole: jobRolePreferNotToSay ? PREFER_NOT_TO_SAY : jobRole.trim(),
