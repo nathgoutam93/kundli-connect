@@ -163,6 +163,29 @@ function GroupedInputRow({
     );
 }
 
+type ConfirmButtonProps = {
+    confirmed: boolean;
+    confirmLabel: string;
+    confirmedLabel: string;
+    onConfirm: () => void;
+};
+
+/** An outlined button until pressed, then a check mark saying the value is confirmed. */
+function ConfirmButton({ confirmed, confirmLabel, confirmedLabel, onConfirm }: ConfirmButtonProps) {
+    if (confirmed) {
+        return (
+            <View style={styles.confirmed} accessibilityLiveRegion="polite">
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <AppText variant="subhead" color={colors.success}>
+                    {confirmedLabel}
+                </AppText>
+            </View>
+        );
+    }
+
+    return <Button label={confirmLabel} variant="secondary" size="md" icon="checkmark-circle-outline" onPress={onConfirm} />;
+}
+
 function getInitialDateParts(value: string) {
     const [day, month, year] = splitStoredDate(value);
 
@@ -338,11 +361,11 @@ export default function KundliDetailsScreen() {
                         separatorChar="·"
                         wideLastInput
                     />
-                    <Button
-                        label={dateConfirmed ? 'Birth date confirmed' : `Confirm ${displayedDobParts.join(' ')}`}
-                        variant="ghost"
-                        disabled={dateConfirmed}
-                        onPress={() => setDateConfirmed(true)}
+                    <ConfirmButton
+                        confirmed={dateConfirmed}
+                        confirmLabel={`Confirm ${displayedDobParts.join(' ')}`}
+                        confirmedLabel="Birth date confirmed"
+                        onConfirm={() => setDateConfirmed(true)}
                     />
                 </View>
 
@@ -361,11 +384,11 @@ export default function KundliDetailsScreen() {
                         showSeparator
                         separatorChar=":"
                     />
-                    <Button
-                        label={timeConfirmed ? 'Birth time confirmed' : `Confirm ${timeParts.join(':')}`}
-                        variant="ghost"
-                        disabled={timeConfirmed}
-                        onPress={() => setTimeConfirmed(true)}
+                    <ConfirmButton
+                        confirmed={timeConfirmed}
+                        confirmLabel={`Confirm ${timeParts.join(':')}`}
+                        confirmedLabel="Birth time confirmed"
+                        onConfirm={() => setTimeConfirmed(true)}
                     />
                 </View>
             </Card>
@@ -389,7 +412,8 @@ export default function KundliDetailsScreen() {
                 visible={isPickerOpen}
                 onClose={() => setIsPickerOpen(false)}
                 title={getActivePickerTitle()}
-                doneLabel="Done">
+                doneLabel="Done"
+                dragFromHeaderOnly>
                 <View style={styles.singlePickerFrame}>
                     <WheelPicker
                         key={activePicker ? `${activePicker.group}-${activePicker.index}` : 'none'}
@@ -454,6 +478,15 @@ const styles = StyleSheet.create({
     },
     inputBoxPressed: {
         borderColor: colors.accent,
+    },
+    confirmed: {
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: space.xs,
+        borderRadius: radius.pill,
+        backgroundColor: colors.successSoft,
     },
     tip: {
         flexDirection: 'row',

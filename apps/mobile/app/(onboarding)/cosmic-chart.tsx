@@ -20,114 +20,56 @@ import { generateCurrentUserKundli } from '@/services/supabase-auth-service';
 
 const CHARTS = { D1: 'Birth chart', D9: 'Navamsa' } as const;
 
-type JsonBadge = {
+type DetailBadge = {
     key: string;
     label: string;
     value: string;
 };
 
 /**
- * Readable names for astro_details keys. The API's own keys are terse and some are misspelt
- * ("Naksahtra"), so known ones are mapped and the rest are title-cased.
+ * The details worth showing, in display order: the chart's core placements, the Manglik status,
+ * and the Moon-based factors Guna Milan scores matches on (Varna, Vashya, Yoni, Gana, Nadi, and
+ * the Moon sign lord for Graha Maitri). Everything else stored with the Kundli (tithi, karana,
+ * name syllable…) is left out. Keys are matched lowercased with non-letters stripped; older
+ * Kundlis came from an API whose keys are terse and some misspelt ("Naksahtra").
  */
-const DETAIL_LABELS: Record<string, string> = {
-    ascendant: 'Ascendant',
-    ascendantlord: 'Ascendant lord',
-    sign: 'Moon sign',
-    signlord: 'Moon sign lord',
-    naksahtra: 'Nakshatra',
-    nakshatra: 'Nakshatra',
-    naksahtralord: 'Nakshatra lord',
-    nakshatralord: 'Nakshatra lord',
-    charan: 'Pada',
-    varna: 'Varna',
-    vashya: 'Vashya',
-    yoni: 'Yoni',
-    gan: 'Gana',
-    nadi: 'Nadi',
-    yog: 'Yoga',
-    karan: 'Karana',
-    tithi: 'Tithi',
-    yunja: 'Yunja',
-    tatva: 'Element',
-    namealphabet: 'Name syllable',
-    paya: 'Paya',
-};
+const SHOWN_DETAILS: { label: string; keys: string[] }[] = [
+    { label: 'Ascendant', keys: ['ascendant'] },
+    { label: 'Moon sign', keys: ['moonsign', 'sign'] },
+    { label: 'Sun sign', keys: ['sunsign'] },
+    { label: 'Nakshatra', keys: ['nakshatra', 'naksahtra'] },
+    { label: 'Manglik', keys: ['manglik'] },
+    { label: 'Varna', keys: ['varna'] },
+    { label: 'Vashya', keys: ['vashya'] },
+    { label: 'Yoni', keys: ['yoni'] },
+    { label: 'Gana', keys: ['gana', 'gan'] },
+    { label: 'Nadi', keys: ['nadi'] },
+    { label: 'Moon sign lord', keys: ['moonsignlord', 'signlord'] },
+];
 
-function formatJsonLabel(value: string) {
-    const known = DETAIL_LABELS[value.toLowerCase().replace(/[^a-z]/g, '')];
-    if (known) {
-        return known;
-    }
-    return value
-        .replace(/\[(\d+)\]/g, ' $1')
-        .replace(/[_-]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatJsonValue(value: unknown): string {
-    if (value === null || value === undefined || value === '') {
-        return '';
-    }
-
+function formatDetailValue(value: unknown): string {
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        return String(value);
+        return String(value).trim();
     }
-
-    if (Array.isArray(value)) {
-        return value
-            .map((item) => formatJsonValue(item))
-            .filter(Boolean)
-            .join(', ');
-    }
-
     return '';
 }
 
-function flattenJsonBadges(value: unknown, parentKey = ''): JsonBadge[] {
-    if (!value || typeof value !== 'object') {
-        const formattedValue = formatJsonValue(value);
-        return formattedValue && parentKey
-            ? [
-                {
-                    key: parentKey,
-                    label: formatJsonLabel(parentKey),
-                    value: formattedValue,
-                },
-            ]
-            : [];
+function pickDetailBadges(rawResponse: Record<string, unknown> | undefined): DetailBadge[] {
+    if (!rawResponse) {
+        return [];
     }
 
-    if (Array.isArray(value)) {
-        const formattedValue = formatJsonValue(value);
-        return formattedValue && parentKey
-            ? [
-                {
-                    key: parentKey,
-                    label: formatJsonLabel(parentKey),
-                    value: formattedValue,
-                },
-            ]
-            : [];
-    }
-
-    return Object.entries(value as Record<string, unknown>).flatMap(([key, childValue]) => {
-        const nextKey = parentKey ? `${parentKey}.${key}` : key;
-        const formattedValue = formatJsonValue(childValue);
-
-        if (formattedValue) {
-            return [
-                {
-                    key: nextKey,
-                    label: formatJsonLabel(key),
-                    value: formattedValue,
-                },
-            ];
+    const valueByKey = new Map<string, string>();
+    for (const [key, value] of Object.entries(rawResponse)) {
+        const formatted = formatDetailValue(value);
+        if (formatted) {
+            valueByKey.set(key.toLowerCase().replace(/[^a-z]/g, ''), formatted);
         }
+    }
 
-        return flattenJsonBadges(childValue, nextKey);
+    return SHOWN_DETAILS.flatMap(({ label, keys }) => {
+        const value = keys.map((key) => valueByKey.get(key)).find(Boolean);
+        return value ? [{ key: label, label, value }] : [];
     });
 }
 
@@ -147,10 +89,7 @@ export function KundliChartContent() {
     const [selectedChart, setSelectedChart] = useState<string | null>(null);
     const activeChart = selectedChart && drawableCharts.includes(selectedChart) ? selectedChart : drawableCharts[0];
     const chartImages = kundliSummary?.chartImages ?? [];
-    const jsonBadges = useMemo(
-        () => flattenJsonBadges(kundliSummary?.rawResponse).slice(0, 80),
-        [kundliSummary?.rawResponse]
-    );
+    const detailBadges = useMemo(() => pickDetailBadges(kundliSummary?.rawResponse), [kundliSummary?.rawResponse]);
 
     // Kundlis generated before chart data was stored: one quiet request fills it in (the server
     // reuses the stored Kundli and only fetches the chart layout).
@@ -222,12 +161,12 @@ export function KundliChartContent() {
                 </Card>
             )}
 
-            {jsonBadges.length > 0 ? (
+            {detailBadges.length > 0 ? (
                 <View style={styles.details}>
                     <AppText variant="title3">Kundli details</AppText>
                     <View style={styles.badgeGrid}>
-                        {jsonBadges.map((badge) => (
-                            <View key={badge.key} style={styles.jsonBadge}>
+                        {detailBadges.map((badge) => (
+                            <View key={badge.key} style={styles.detailBadge}>
                                 <AppText variant="overline" color={colors.textFaint}>
                                     {badge.label}
                                 </AppText>
@@ -332,7 +271,7 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: space.xs,
     },
-    jsonBadge: {
+    detailBadge: {
         maxWidth: '100%',
         gap: 2,
         borderWidth: 1,
