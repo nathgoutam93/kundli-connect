@@ -41,6 +41,11 @@ type BottomSheetProps = {
    * scrolled into view above the keyboard, and only the handle and header drag the sheet.
    */
   scrollable?: boolean;
+  /**
+   * For content that takes vertical drags itself, such as a wheel picker: only the handle and
+   * header drag the sheet, so scrolling the content doesn't pull the sheet down.
+   */
+  dragFromHeaderOnly?: boolean;
 };
 
 /** Distance or flick speed past which a downward drag closes the sheet. */
@@ -60,6 +65,7 @@ export function BottomSheet({
   children,
   contentStyle,
   scrollable = false,
+  dragFromHeaderOnly = false,
 }: BottomSheetProps) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -137,6 +143,13 @@ export function BottomSheet({
     sheetHeight.value = event.nativeEvent.layout.height;
   }
 
+  const sheetStyles = [
+    styles.sheet,
+    { paddingBottom: Math.max(insets.bottom, space.md) + space.sm },
+    contentStyle,
+    sheetStyle,
+  ];
+
   const header = (
     <>
       <View style={styles.handle} />
@@ -167,35 +180,35 @@ export function BottomSheet({
           <Animated.View style={[styles.scrim, scrimStyle]}>
             <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
           </Animated.View>
-          {scrollable ? (
-            <Animated.View
-              onLayout={handleLayout}
-              style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.md) + space.sm }, contentStyle, sheetStyle]}>
+          {scrollable || dragFromHeaderOnly ? (
+            <Animated.View onLayout={handleLayout} style={sheetStyles}>
               <GestureDetector gesture={pan}>
                 <View style={styles.grabber}>{header}</View>
               </GestureDetector>
-              <ScrollView
-                ref={scrollRef}
-                style={styles.scroll}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                scrollEventThrottle={32}
-                onScroll={(event) => {
-                  scrollY.current = event.nativeEvent.contentOffset.y;
-                }}
-                onLayout={(event) => {
-                  viewportHeight.current = event.nativeEvent.layout.height;
-                }}>
-                <View ref={scrollContentRef} style={styles.scrollContent}>
-                  {children}
-                </View>
-              </ScrollView>
+              {scrollable ? (
+                <ScrollView
+                  ref={scrollRef}
+                  style={styles.scroll}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  scrollEventThrottle={32}
+                  onScroll={(event) => {
+                    scrollY.current = event.nativeEvent.contentOffset.y;
+                  }}
+                  onLayout={(event) => {
+                    viewportHeight.current = event.nativeEvent.layout.height;
+                  }}>
+                  <View ref={scrollContentRef} style={styles.scrollContent}>
+                    {children}
+                  </View>
+                </ScrollView>
+              ) : (
+                children
+              )}
             </Animated.View>
           ) : (
             <GestureDetector gesture={pan}>
-              <Animated.View
-                onLayout={handleLayout}
-                style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, space.md) + space.sm }, contentStyle, sheetStyle]}>
+              <Animated.View onLayout={handleLayout} style={sheetStyles}>
                 {header}
                 {children}
               </Animated.View>
